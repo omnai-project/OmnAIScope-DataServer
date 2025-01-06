@@ -1,0 +1,3 @@
+[submodule "ai_omniscope-v2-communication_sw"]
+	path = ai_omniscope-v2-communication_sw
+	url = git@github.com:AI-Gruppe/ai_omniscope-v2-communication_sw.git
