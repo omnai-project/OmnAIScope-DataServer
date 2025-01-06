@@ -1,3 +1,0 @@
-/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate.dir
-/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/edit_cache.dir
-/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/rebuild_cache.dir

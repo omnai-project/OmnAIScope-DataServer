@@ -1,8 +1,0 @@
-/home/anna/miniBE/build/CMakeFiles/MiniOmni.dir
-/home/anna/miniBE/build/CMakeFiles/edit_cache.dir
-/home/anna/miniBE/build/CMakeFiles/rebuild_cache.dir
-/home/anna/miniBE/build/_deps/cmake_git_version-build/CMakeFiles/cmake_git_version_check_repository.dir
-/home/anna/miniBE/build/_deps/cmake_git_version-build/CMakeFiles/edit_cache.dir
-/home/anna/miniBE/build/_deps/cmake_git_version-build/CMakeFiles/rebuild_cache.dir
-/home/anna/miniBE/build/aglio/CMakeFiles/edit_cache.dir
-/home/anna/miniBE/build/aglio/CMakeFiles/rebuild_cache.dir
