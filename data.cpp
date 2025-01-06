@@ -4,6 +4,8 @@ int main(){
 
 // load submodule 
 
+std::cout << "Programm start" << std::endl; 
+
 // hardcoded VID and PID 
 
 static constexpr int VID = 0x2e8au;
@@ -13,7 +15,13 @@ static constexpr int PID = 0x000au;
 
 auto devices = deviceManager.getDevices(VID, PID); 
 
-std::cout << devices.size() << std::endl; 
+if(devices.empty()){
+    std::cout << "No devices found" << std::endl; 
+}
+else {
+    std::cout << devices.size() << std::endl; 
+}
+
 
 // instanciate DataObject 
 
