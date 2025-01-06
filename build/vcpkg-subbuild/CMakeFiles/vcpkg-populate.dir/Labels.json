@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate-complete.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-build.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-configure.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-download.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-install.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-patch.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-test.rule"
+		},
+		{
+			"file" : "/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"vcpkg-populate"
+		],
+		"name" : "vcpkg-populate"
+	}
+}

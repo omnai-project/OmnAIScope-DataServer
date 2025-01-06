@@ -36,7 +36,14 @@ find_or_fetch_package(
   cmake_git_version 0.1 GIT_REPOSITORY
   https://github.com/dominicpoeschko/cmake_git_version.git GIT_TAG master)
 
+add_subdirectory(aglio)
+target_link_libraries(MiniOmni PUBLIC aglio::aglio)
+
 find_package(libusb CONFIG REQUIRED)
 target_include_directories(MiniOmni PUBLIC ${LIBUSB_INCLUDE_DIRS})
 target_link_libraries(MiniOmni PUBLIC ${LIBUSB_LIBRARIES})
+
+find_package(fmt CONFIG REQUIRED)
+target_link_libraries(MiniOmni PUBLIC fmt::fmt-header-only)
+
 target_compile_features(MiniOmni PUBLIC cxx_std_23)

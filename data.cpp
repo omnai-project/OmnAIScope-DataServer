@@ -1,27 +1,35 @@
 #include "data.hpp"
 
+
+void waitForExit(){
+    std::cout << "Programm startet. Drücke Enter um das Programm zu beenden: " << std::endl; 
+    std::cin.get(); 
+    running = false; 
+}
+
+void initDevices() {
+  constexpr int VID = 0x2e8au;
+  constexpr int PID = 0x000au;
+
+  auto devices = deviceManager.getDevices(VID, PID);
+  std::cout << "Found " << devices.size() << " devices.\n";
+  devices.clear();
+  deviceManager.clearDevices();
+}
+
+
 int main(){
 
-// load submodule 
+// to exit the programm with enter 
+std::thread exitThread(waitForExit);
 
-std::cout << "Programm start" << std::endl; 
-
-// hardcoded VID and PID 
-
-static constexpr int VID = 0x2e8au;
-static constexpr int PID = 0x000au;
-
-// Init devices 
-
-auto devices = deviceManager.getDevices(VID, PID); 
-
-if(devices.empty()){
-    std::cout << "No devices found" << std::endl; 
-}
-else {
-    std::cout << devices.size() << std::endl; 
+while(running){
+    initDevices(); // check if devices are connected 
+    std::this_thread::sleep_for(std::chrono::seconds(5)); 
 }
 
+exitThread.join(); 
+std::cout << "Programm beendet" << std::endl; 
 
 // instanciate DataObject 
 

@@ -1,0 +1,14 @@
+# Target labels
+ vcpkg-populate
+# Source files and their labels
+/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate
+/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate.rule
+/home/anna/miniBE/build/vcpkg-subbuild/CMakeFiles/vcpkg-populate-complete.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-build.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-configure.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-download.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-install.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-mkdir.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-patch.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-test.rule
+/home/anna/miniBE/build/vcpkg-subbuild/vcpkg-populate-prefix/src/vcpkg-populate-stamp/vcpkg-populate-update.rule

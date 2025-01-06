@@ -1,0 +1,3 @@
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/CMakeFiles/cmake_git_version-populate.dir
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/CMakeFiles/edit_cache.dir
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/CMakeFiles/rebuild_cache.dir

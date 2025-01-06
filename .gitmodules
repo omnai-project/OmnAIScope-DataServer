@@ -4,3 +4,6 @@
 [submodule "cmake_helpers"]
 	path = cmake_helpers
 	url = https://github.com/dominicpoeschko/cmake_helpers.git
+[submodule "aglio"]
+	path = aglio
+	url = https://github.com/dominicpoeschko/aglio.git

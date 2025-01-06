@@ -1,0 +1,8 @@
+.vscode/
+build
+.cache
+saves
+vcpkg
+*.exe
+*.ini
+.vs

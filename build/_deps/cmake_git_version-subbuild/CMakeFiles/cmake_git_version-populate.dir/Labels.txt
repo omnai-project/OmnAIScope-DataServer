@@ -1,0 +1,14 @@
+# Target labels
+ cmake_git_version-populate
+# Source files and their labels
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/CMakeFiles/cmake_git_version-populate
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/CMakeFiles/cmake_git_version-populate.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/CMakeFiles/cmake_git_version-populate-complete.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-build.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-configure.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-download.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-install.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-mkdir.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-patch.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-test.rule
+/home/anna/miniBE/build/_deps/cmake_git_version-subbuild/cmake_git_version-populate-prefix/src/cmake_git_version-populate-stamp/cmake_git_version-populate-update.rule

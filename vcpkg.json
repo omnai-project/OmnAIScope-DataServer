@@ -1,7 +1,8 @@
 {
-    "name": "MiniOmni", 
+    "name": "miniomni", 
     "version": "1.0",
     "dependencies": [
+        "fmt",
         "libusb"
     ]
 }
