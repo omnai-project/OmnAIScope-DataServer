@@ -3,6 +3,7 @@
     "version": "1.0",
     "dependencies": [
         "fmt",
-        "libusb"
+        "libusb",
+	"boost-crc"
     ]
 }
