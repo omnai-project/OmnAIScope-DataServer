@@ -11,6 +11,7 @@ To develop and build C++ applications, you need to install the required tools us
 2. Open the installer and choose to install the **Desktop Development with C++** workload.
 3. Select the following individual components within the workload:
    - **MSVC v143 or newer**
+   - ***MSVC 142 - VS 2019 C++ -x64/x86 Buildtools**
    - **Windows 11 SDK (10.0.22621...) or newer**
    - **C++ CMake Tools for Windows**
    - **Core Features of Test Tools - Build Tools**
