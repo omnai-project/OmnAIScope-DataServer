@@ -2,7 +2,7 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
-#include "ai_omniscope-v2-communication_sw/src/OmniscopeSampler.hpp"
+#include "../ai_omniscope-v2-communication_sw/src/OmniscopeSampler.hpp"
 
 inline OmniscopeDeviceManager deviceManager{};
 inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;

@@ -28,7 +28,7 @@ include(cmake_helpers/BuildOptions.cmake)
 include(cmake_helpers/FindOrFetch.cmake)
 
 add_executable(MiniOmni
-               data.cpp)
+               src/data.cpp)
 
 target_add_default_build_options(MiniOmni PUBLIC)
 

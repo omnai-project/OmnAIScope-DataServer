@@ -48,6 +48,10 @@ int main(){
 // to exit the programm with enter 
 std::thread exitThread(waitForExit);
 
+std::thread pythonThread([]() {
+        std::system("python3 show.py"); // Python-Visualisierung starten
+    });
+
 while(running){
 
     // Init Scopes 
