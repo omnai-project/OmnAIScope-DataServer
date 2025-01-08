@@ -32,16 +32,16 @@ while(running){
 
     // Get Data if Scopes are connected 
     if(!devices.empty()){
-        sampler(deviceManager, std::move(devices)); 
-        sampler.copyOut(captureData); 
+        sampler.emplace(deviceManager, std::move(devices)); 
+        sampler->copyOut(captureData); 
 
         if(sampler.has_value()){
-        for(const auto& [id, vec] : data){
-            std::cout << "Id:" << id << "\n";
+        for(const auto& [id, vec] : captureData){
+            fmt::print("dev: {}\n", id);
             for(const auto& [first, second] : vec) {
                 std::cout << first << "," << second << "\n"; 
             }
-            std::this_thread::sleep_for(std::chrono::seconds(5); 
+            std::this_thread::sleep_for(std::chrono::seconds(5)); 
         }
         }
     }
