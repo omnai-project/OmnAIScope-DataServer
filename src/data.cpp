@@ -16,23 +16,40 @@ void initDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &devices) {
 }
 
 void sampleAndWriteToFile(const std::vector<std::pair<double, double>>& data){
-
     const std::string filename = "data.txt";
-    std::ofstream outFile(filename, std::ios::trunc);
 
-    if (!outFile) {
-        std::cerr << "Fehler beim Öffnen der Datei: " << filename << std::endl;
-        return;
+     {
+        std::ofstream outFile(filename, std::ios::trunc);
+        if (!outFile) {
+            std::cerr << "Fehler beim Öffnen der Datei: " << filename << std::endl;
+            return;
+        }
     }
-
     for(const auto& [first, second] : data){
         if(running){
-        outFile << first << "," << second << "\n";
+            std::ofstream outFile(filename, std::ios::app);
+             if (!outFile) {
+                 std::cerr << "Fehler beim Öffnen der Datei: " << filename << std::endl;
+                return;
+                }
+             if (outFile.is_open()) {
+                outFile << first << "," << second << "\n";
+                outFile.flush();
+                outFile.close();
+            }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         else {
             if(sampler.has_value()){
+                 std::ofstream outFile(filename, std::ios::app);
+                if (!outFile) {
+                 std::cerr << "Fehler beim Öffnen der Datei: " << filename << std::endl;
+                return;
+                }
                 std::cout << "Stop the Scope" << std::endl; 
+                outFile << "STOP\n"; // to stop the python script 
+                outFile.flush();
+                outFile.close();
                 for (auto &device : sampler->sampleDevices) 
                 {
                     device.first->send(Omniscope::Stop{});
@@ -49,7 +66,7 @@ int main(){
 std::thread exitThread(waitForExit);
 
 std::thread pythonThread([]() {
-        std::system("python3 show.py"); // Python-Visualisierung starten
+        std::system("python ../../src/show.py"); // Python-Visualisierung starten
     });
 
 while(running){
@@ -80,6 +97,7 @@ while(running){
     }
 }
 
+pythonThread.join();
 exitThread.join(); 
 
 std::cout << "Programm beendet" << std::endl; 
