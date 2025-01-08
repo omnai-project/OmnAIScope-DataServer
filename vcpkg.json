@@ -1,9 +1,11 @@
 {
-    "name": "miniomni", 
+    "name": "miniomni",
     "version": "1.0",
     "dependencies": [
+        "pkgconf",
         "fmt",
         "libusb",
-	"boost-crc"
+    "boost-crc"
     ]
 }
+
