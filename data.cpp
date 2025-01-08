@@ -2,18 +2,46 @@
 
 void waitForExit(){
     std::cout << "Programm startet. Drücke Enter um das Programm zu beenden: " << std::endl; 
+    std::cin.sync();
     std::cin.get(); 
     running = false; 
 }
 
-void initDevices() {
+void initDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &devices) {
   constexpr int VID = 0x2e8au;
   constexpr int PID = 0x000au;
 
-  auto devices = deviceManager.getDevices(VID, PID);
+  devices = deviceManager.getDevices(VID, PID);
   std::cout << "Found " << devices.size() << " devices.\n";
 }
 
+void sampleAndWriteToFile(const std::vector<std::pair<double, double>>& data){
+
+    const std::string filename = "data.txt";
+    std::ofstream outFile(filename, std::ios::trunc);
+
+    if (!outFile) {
+        std::cerr << "Fehler beim Öffnen der Datei: " << filename << std::endl;
+        return;
+    }
+
+    for(const auto& [first, second] : data){
+        if(running){
+        outFile << first << "," << second << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        else {
+            if(sampler.has_value()){
+                std::cout << "Stop the Scope" << std::endl; 
+                for (auto &device : sampler->sampleDevices) 
+                {
+                    device.first->send(Omniscope::Stop{});
+                } 
+            }
+            break;
+        }
+    }
+}
 
 int main(){
 
@@ -26,28 +54,30 @@ while(running){
     if(!sampler.has_value()){
     devices.clear();
     deviceManager.clearDevices();
-    initDevices(); // check if devices are connected
+    initDevices(devices); // check if devices are connected
     std::this_thread::sleep_for(std::chrono::seconds(2)); // Pause between checks 
     }
 
-    // Get Data if Scopes are connected 
-    if(!devices.empty()){
-        sampler.emplace(deviceManager, std::move(devices)); 
-        sampler->copyOut(captureData); 
+    if(!devices.empty() && !sampler.has_value()){ // move the device in the sampler
+        std::cout <<"Devices where found and are emplaced"<< std::endl; 
+        sampler.emplace(deviceManager, std::move(devices));  
+    }
 
-        if(sampler.has_value()){
+    if(sampler.has_value()){ // write Data into file 
+
+         for (auto &device : sampler->sampleDevices) {
+          device.first->send(Omniscope::Start{});
+        }
+        sampler->copyOut(captureData);
         for(const auto& [id, vec] : captureData){
             fmt::print("dev: {}\n", id);
-            for(const auto& [first, second] : vec) {
-                std::cout << first << "," << second << "\n"; 
-            }
-            std::this_thread::sleep_for(std::chrono::seconds(5)); 
-        }
+            sampleAndWriteToFile(vec); 
         }
     }
 }
 
 exitThread.join(); 
+
 std::cout << "Programm beendet" << std::endl; 
 
 }
