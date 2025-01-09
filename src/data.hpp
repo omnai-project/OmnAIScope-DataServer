@@ -6,11 +6,11 @@
 
 inline OmniscopeDeviceManager deviceManager{};
 inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;
-inline std::optional<OmniscopeSampler> sampler{}; 
-inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData; 
+inline std::optional<OmniscopeSampler> sampler{};
+inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
 std::atomic<bool> running{true};
 
 
-void waitForExit(); 
-void initDevices();  
-void sampleAndWriteToFile(const std::vector<std::pair<double, double>>& ); 
+void waitForExit();
+void initDevices();
+void sampleAndWriteToFile(const std::vector<std::pair<double, double>>& );
