@@ -1,8 +1,9 @@
 # Setting Up and Building the MiniOmni Project
 
-This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows.
+This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as a Rasberry Pi with Debian and ARM. 
 
 ---
+# Windows
 
 ## 1. Download and Install Visual Studio
 To develop and build C++ applications, you need to install the required tools using Visual Studio.
@@ -123,5 +124,68 @@ The program should start, and you can interact with it as instructed.
 ---
 
 By following these steps, you should be able to successfully set up, build, and run the MiniOmni project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
+
+# Rasberry Pi
+
+# Build and Run Instructions on ARM
+
+This guide explains how to build and run the program on ARM-based platforms. Follow the steps below to set up, compile, and run the program.
+
+---
+
+## Prerequisites
+
+Make sure the following packages are installed:
+
+- `build-essential`
+- `cmake`
+- `autoconf`
+- `libudev-dev`
+
+### Installing Required Packages (Debian-based Systems)
+
+Run the following command to install the necessary packages:
+
+``` cmd
+sudo apt update
+sudo apt install build-essential cmake autoconf libudev-dev
+```
+
+### Set VCPKG Variable 
+
+```
+export VCPKG_FORCE_SYSTEM_BINARIES=1
+```
+### Clone the Project Repository and Initialize Submodules
+
+1. Clone the MiniOmni project from the repository:
+   ```cmd
+   git clone git@github.com:AI-Gruppe/mini_omnai.git
+   ```
+2. Navigate into the cloned project directory:
+   ```cmd
+   cd mini_omnai
+   ```
+3. Initialize and update the submodules:
+   ```cmd
+   git submodule update --init --recursive
+   ```
+   This ensures all dependencies and additional components required by the project are retrieved.
+
+## Building 
+
+Run the following commands to build the project 
+```
+   cmake ..
+   cmake --build .
+```
+
+You can start the project with 
+```
+   ./MiniOmni
+``` 
+
+By following these steps, you should be able to successfully set up, build, and run the MiniOmni project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
+---
 
 
