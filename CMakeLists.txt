@@ -4,7 +4,7 @@ include(FetchContent)
 FetchContent_Populate(
   vcpkg
   GIT_REPOSITORY https://github.com/microsoft/vcpkg.git
-  GIT_TAG        2023.11.20
+  GIT_TAG        2024.12.16
   SOURCE_DIR     "${CMAKE_SOURCE_DIR}/vcpkg"
 )
 
@@ -39,9 +39,10 @@ find_or_fetch_package(
 add_subdirectory(aglio)
 target_link_libraries(MiniOmni PUBLIC aglio::aglio)
 
-find_package(libusb CONFIG REQUIRED)
-target_include_directories(MiniOmni PUBLIC ${LIBUSB_INCLUDE_DIRS})
-target_link_libraries(MiniOmni PUBLIC ${LIBUSB_LIBRARIES})
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)
+
+  target_link_libraries(MiniOmni PRIVATE PkgConfig::libusb)
 
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(MiniOmni PUBLIC fmt::fmt-header-only)
