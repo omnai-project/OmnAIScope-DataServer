@@ -36,7 +36,7 @@ def calculate_density_function(y):
     return density, bin_centers
 
 # Augendiagramm erstellen
-def create_eye_diagram(x, y, output_filename, frequency):
+def create_eye_diagram(x, y, output_filename, frequency, mean_y):
     if not x or not y:
         print("No data to plot.")
         return
@@ -45,7 +45,7 @@ def create_eye_diagram(x, y, output_filename, frequency):
     colors = itertools.cycle(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
 
     # Identifizieren der Startregion
-    above = y[0] > 45
+    above = y[0] > mean_y
     color = next(colors)
 
     # Daten für die aktuelle Sektion
@@ -56,9 +56,12 @@ def create_eye_diagram(x, y, output_filename, frequency):
     fig, ax = plt.subplots(figsize=(20, 12))
     ax_eye = plt.subplot2grid((1, 2), (0, 0), fig=fig)
     ax_density = plt.subplot2grid((1, 2), (0, 1), fig=fig)
+    
+    skipped_first_curve = False
 
     for i in range(len(x)):
-        if (y[i] > 45) != above:  # Wechsel der Region
+        if (y[i] > mean_y) != above: # Wechsel der Region
+            if not skipped_first_curve: 
             # Plotten der aktuellen Sektion
             ax_eye.plot(range(len(segment_x)), segment_y, color=color, marker='.', markersize=1)
             color = next(colors)
@@ -71,7 +74,7 @@ def create_eye_diagram(x, y, output_filename, frequency):
         segment_y.append(y[i])
 
     # Plotten der letzten Sektion
-    if segment_x and segment_y:
+    if skipped_first_curve and segment_x and segment_y:
         ax_eye.plot(segment_x, segment_y, color=color, marker='.', markersize=1)
 
     # Verteilungsdichtefunktion plotten
@@ -103,4 +106,5 @@ if __name__ == "__main__":
 
     print(f"Attempting to read file: {filename}")
     x, y = read_data(filename)
-    create_eye_diagram(x, y, args.output, args.f)
+    mean_y = sum(y) / len(y) if y else 0
+    create_eye_diagram(x, y, args.output, args.f, mean_y)
