@@ -8,6 +8,13 @@ FetchContent_Populate(
   SOURCE_DIR     "${CMAKE_SOURCE_DIR}/vcpkg"
 )
 
+FetchContent_Populate(
+  CLI11
+  GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+  GIT_TAG v2.3.2
+)
+
+
 list(APPEND CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake")
 list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_PROJECT_TOP_LEVEL_INCLUDES)
 
@@ -27,6 +34,8 @@ endif()
 include(cmake_helpers/BuildOptions.cmake)
 include(cmake_helpers/FindOrFetch.cmake)
 
+add_subdirectory(${CLI11_SOURCE_DIR} ${CLI11_BINARY_DIR})
+
 add_executable(MiniOmni
                src/data.cpp)
 
@@ -39,12 +48,17 @@ find_or_fetch_package(
 add_subdirectory(aglio)
 target_link_libraries(MiniOmni PUBLIC aglio::aglio)
 
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)
 
-  target_link_libraries(MiniOmni PRIVATE PkgConfig::libusb)
+target_link_libraries(MiniOmni PRIVATE PkgConfig::libusb)
 
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(MiniOmni PUBLIC fmt::fmt-header-only)
+
+target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
+#target_include_directories(MiniOmni PRIVATE ${CLI11_SOURCE_DIR}/include)
+#find_package(CLI11 CONFIG REQUIRED)
+#target_link_libraries(MiniOmni PUBLIC CLI11::CLI11)
 
 target_compile_features(MiniOmni PUBLIC cxx_std_23)
