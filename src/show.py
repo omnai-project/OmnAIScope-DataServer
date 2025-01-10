@@ -24,10 +24,11 @@ def read_data(filename):
                 parts = line.strip().split(",")
                 if len(parts) == 2:
                     x.append(float(parts[0]))
-                    y.append(float(parts[1]))
+                    y.append(float(parts[1]))               
     except (FileNotFoundError, PermissionError):
         # If data is written currently pass 
         pass
+    #print("data"+str(x))
     return x, y, stop_signal
 
 plt.ion()
@@ -52,7 +53,7 @@ while True:
     
     if stop_signal:
         print("Stop-Signal erkannt. Beende Python-Skript.")
-        break
+    break
 
     plt.draw()
     plt.pause(0.1)
