@@ -6,7 +6,7 @@ import numpy as np
 
 # Argumente definieren
 parser = argparse.ArgumentParser(description="Generate an eye diagram from x-y values in a file.")
-parser.add_argument("--file", type=str, default="../build/Release/data.txt", help="Path to the input file containing x and y values.")
+parser.add_argument("--file", type=str, default="../build/data.txt", help="Path to the input file containing x and y values.")
 parser.add_argument("--output", type=str, default="eye_diagram.png", help="Name of the output PNG file.")
 parser.add_argument("--f", type=str, required=True, help="Frequency to display in the diagram header.")
 args = parser.parse_args()
@@ -31,7 +31,7 @@ def read_data(file_path):
 
 # Verteilungsdichtefunktion berechnen
 def calculate_density_function(y):
-    density, bins = np.histogram(y, bins=100, density=True)
+    density, bins = np.histogram(y, bins=400, density=True)
     bin_centers = 0.5 * (bins[1:] + bins[:-1])
     return density, bin_centers
 
@@ -60,7 +60,7 @@ def create_eye_diagram(x, y, output_filename, frequency, mean_y):
     skipped_first_curve = False
 
     for i in range(len(x)):
-        if (y[i] > 45) != above:  # Wechsel der Region
+        if (y[i] > mean_y) != above:  # Wechsel der Region
             if not skipped_first_curve:  # Skip the first curve
                 skipped_first_curve = True
                 segment_x = []
@@ -69,7 +69,7 @@ def create_eye_diagram(x, y, output_filename, frequency, mean_y):
                 continue
 
             # Plotten der aktuellen Sektion
-            ax_eye.plot(range(len(segment_x)), segment_y, color=color, linestyle='-', marker='.', markersize=1)
+            ax_eye.plot(range(len(segment_x)), segment_y, color=color, linestyle='None', marker='.', markersize=1)
             color = next(colors)
             above = not above
             segment_x = []
@@ -82,7 +82,7 @@ def create_eye_diagram(x, y, output_filename, frequency, mean_y):
 
     # Plotten der letzten Sektion
     if skipped_first_curve and segment_x and segment_y:
-        ax_eye.plot(segment_x, segment_y, color=color, marker='.', markersize=1)
+        ax_eye.plot(segment_x, segment_y, color=color,linestyle='None', marker='.', markersize=1)
 
     # Verteilungsdichtefunktion plotten
     density, bin_centers = calculate_density_function(y)
