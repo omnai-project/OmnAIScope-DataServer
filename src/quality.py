@@ -59,7 +59,7 @@ def create_eye_diagram(x, y, output_filename, frequency, mean_y):
     
     skipped_first_curve = False
 
-     for i in range(len(x)):
+    for i in range(len(x)):
         if (y[i] > 45) != above:  # Wechsel der Region
             if not skipped_first_curve:  # Skip the first curve
                 skipped_first_curve = True
@@ -78,6 +78,7 @@ def create_eye_diagram(x, y, output_filename, frequency, mean_y):
         # Hinzufügen des aktuellen Punktes zur Sektion
         segment_x.append(len(segment_x))  # Immer bei x=0 starten und inkrementieren
         segment_y.append(y[i])
+
 
     # Plotten der letzten Sektion
     if skipped_first_curve and segment_x and segment_y:
