@@ -118,7 +118,7 @@ int main() {
                 fmt::print("dev: {}\n", id);
                 sampleAndWriteToFile(vec);
             }
-            std::this_thread::sleep_for(std::chrono::seconds(60)); // Pause between checks
+            std::this_thread::sleep_for(std::chrono::seconds(2)); // Pause between checks
             auto end = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
