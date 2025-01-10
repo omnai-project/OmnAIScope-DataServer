@@ -59,11 +59,17 @@ def create_eye_diagram(x, y, output_filename, frequency, mean_y):
     
     skipped_first_curve = False
 
-    for i in range(len(x)):
-        if (y[i] > mean_y) != above: # Wechsel der Region
-            if not skipped_first_curve: 
+     for i in range(len(x)):
+        if (y[i] > 45) != above:  # Wechsel der Region
+            if not skipped_first_curve:  # Skip the first curve
+                skipped_first_curve = True
+                segment_x = []
+                segment_y = []
+                above = not above
+                continue
+
             # Plotten der aktuellen Sektion
-            ax_eye.plot(range(len(segment_x)), segment_y, color=color, marker='.', markersize=1)
+            ax_eye.plot(range(len(segment_x)), segment_y, color=color, linestyle='-', marker='.', markersize=1)
             color = next(colors)
             above = not above
             segment_x = []
