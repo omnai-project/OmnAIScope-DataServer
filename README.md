@@ -81,7 +81,9 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-## 6. Generate the Build System with CMake
+## 6. Download Python if necessary 
+
+## 7. Generate the Build System with CMake
 
 1. Return to the root project directory (e.g., `mini_omnai`):
    ```cmd
@@ -95,7 +97,7 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-## 7. Build the Project with CMake
+## 8. Build the Project with CMake
 
 1. Build the project by running:
    ```cmd
@@ -105,7 +107,7 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-## 8. Run the Built Release
+## 9. Run the Built Release
 
 1. Navigate to the directory containing the compiled executable:
    ```cmd
