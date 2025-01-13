@@ -3,56 +3,42 @@
 
 int main(int argc, char **argv) {
 
-    std::cout << "Hallo ich fange überhaupt an" <<std::endl; 
-
 // Create Optional CLI Tool
     CLI::App app{"OmnAI CLI"};
-    //Search for Devices
+
+    //Search for devices
     bool search = false;
     app.add_flag("-s,--search", search, "Prints all connected devices");
 
-    std::string startUUID;
+    std::vector<std::string> startUUID;
 
-    app.add_option("-p,--play", startUUID, "Start the device with the given UUID");
+    app.add_option("-d,--device, --dev", startUUID, "Start the devices with the given UUIDs");
 
     std::string filePath;
 
-    app.add_option("-f,--file", filePath, "Add a file you want the data to be saved in");
+    app.add_option("-o,--output", filePath, "Add a file you want the data to be saved in");
 
 
     CLI11_PARSE(app, argc, argv);
 
-    /*std::thread pythonThread([]() {
-        std::system("python ../../src/show.py"); // Python-Visualisierung starten
-    });*/
-
-    if(search) {
+    if(search) { // search for devices and print the UUID
         searchDevices();
         printDevices();
     }
 
     while(running) {
-        if(!startUUID.empty() && filePath.empty()) {
-            std::thread exitThread(waitForExit); //Otherwise exit the programm with Enter
-            startMeasurementAndPrintInConsole(startUUID);
-            exitThread.join();
+        if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
+            std::thread exitThread(waitForExit);
+            startMeasurementAndWrite(startUUID, filePath);
+            exitThread.join(); // exit the programm with enter
         }
-        else if(!startUUID.empty() && !filePath.empty()) {
-            std::thread exitThread(waitForExit); //Otherwise exit the programm with Enter
-            startMeasurementAndSaveInFile(filePath);
-            exitThread.join();
-        }
-        else {
+        else { // else all connected devices will be started and the data will be written in the default path
 
-            std::thread exitThread(waitForExit); //Otherwise exit the programm with Enter
+            std::thread exitThread(waitForExit);
             std::string defaultPath ="data.txt";
 
             // Init Scopes
-            if(!sampler.has_value()) {
-                devices.clear();
-                deviceManager.clearDevices();
-                initDevices(); // check if devices are connected
-            }
+            searchDevices();
 
             if(!devices.empty() && !sampler.has_value()) { // move the device in the sampler
                 std::cout <<"Devices where found and are emplaced"<< std::endl;
@@ -64,29 +50,14 @@ int main(int argc, char **argv) {
                 }
             }
 
-            if(sampler.has_value()) { // write Data into file
-                captureData.clear();
-                sampler->copyOut(captureData);
-                auto start = std::chrono::high_resolution_clock::now();
+            printOrWrite(defaultPath);
 
-                for(const auto& [id, vec] : captureData) {
-                    fmt::print("dev: {}\n", id);
-                    sampleAndWriteToFile(vec, defaultPath);
-                }
-                // std::this_thread::sleep_for(std::chrono::seconds(1)); // Pause between checks
-                auto end = std::chrono::high_resolution_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-
-                std::cout << "Zeit: " << duration << std::endl;
-            }
             if(!running) {
                 exitThread.join();
             }
         }
     }
 
-    // pythonThread.join();
-
-    std::cout << "Programm beendet" << std::endl;
+    std::cout << "End of the program" << std::endl;
 
 }
