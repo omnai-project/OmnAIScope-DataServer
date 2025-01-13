@@ -32,30 +32,6 @@ int main(int argc, char **argv) {
             startMeasurementAndWrite(startUUID, filePath);
             exitThread.join(); // exit the programm with enter
         }
-        else { // else all connected devices will be started and the data will be written in the default path
-
-            std::thread exitThread(waitForExit);
-            std::string defaultPath ="data.txt";
-
-            // Init Scopes
-            searchDevices();
-
-            if(!devices.empty() && !sampler.has_value()) { // move the device in the sampler
-                std::cout <<"Devices where found and are emplaced"<< std::endl;
-                sampler.emplace(deviceManager, std::move(devices));
-                if(sampler.has_value()) {
-                    for (auto &device : sampler->sampleDevices) {
-                        device.first->send(Omniscope::Start{});
-                    }
-                }
-            }
-
-            printOrWrite(defaultPath);
-
-            if(!running) {
-                exitThread.join();
-            }
-        }
     }
 
     std::cout << "End of the program" << std::endl;

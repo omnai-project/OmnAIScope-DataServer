@@ -17,12 +17,12 @@ std::atomic<bool> running{true};
 
 void waitForExit();
 void initDevices();
-void writeDatatoFile(const std::vector<std::pair<double, double>>&, std::string &);
+void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &);
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void startMeasurementAndWrite(std::vector<std::string> &, std::string &);
 void selectDevices();
-void printOrWrite(std::string &); 
+void printOrWrite(std::string &, std::vector<std::string> &); 
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 
@@ -49,73 +49,64 @@ void initDevices() { // Initalize the connected devices
     }
 }
 
-void writeDatatoFile(const std::vector<std::pair<double, double>>& data, std::string &filePath) {
-    const std::string filename = filePath;
-    int valWrittenAtSameTime = 0;
-
-    std::ofstream outFile(filename, std::ios::app);
-    if (!outFile) {
-        std::cerr << "Error opening file: " << filename << std::endl;
+void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData , std::string &filePath, std::vector<std::string> &UUID) {
+     if (captureData.empty()) {
+        std::cerr << "No data available to write.\n";
         return;
     }
-    outFile.close();
 
-    for(const auto& [first, second] : data) {
-        if(running) {
-            if(valWrittenAtSameTime == 0) {
-                outFile.open(filename, std::ios::app);
-                if (!outFile) {
-                    std::cerr << "Error opening file: " << filename << std::endl;
-                    return;
-                }
-            }
-            if (outFile.is_open()) {
-                //std::cout << "Schreiben beginnt" << std::endl;
-                //auto start = std::chrono::high_resolution_clock::now();
-                outFile << first << "," << second << "\n";
-                if(!running) {
-                    outFile.flush();
-                    outFile.close();
-                }
-                //auto end = std::chrono::high_resolution_clock::now();
-                valWrittenAtSameTime++;
-                //std::cout << valWrittenAtSameTime << std::endl;
-            }
-            /* if(valWrittenAtSameTime > ) {
-                 outFile.flush();
-                 outFile.close();
-                 valWrittenAtSameTime = 0;
-             }*/
-            //std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        else {
-            if(sampler.has_value()) {
-                if(!outFile.is_open()) {
-                    outFile.open(filename, std::ios::app);
-                }
-                if (!outFile) {
-                    std::cerr << "Error opening file:" << filename << std::endl;
-                    return;
-                }
-                std::cout << "Stop the Scope" << std::endl;
-                outFile << "STOP\n"; // to stop the python script
-                outFile.flush();
-                outFile.close();
-                for (auto &device : sampler->sampleDevices)
-                {
-                    device.first->send(Omniscope::Stop{});
-                }
-            }
-            break;
-        }
-        if(!running) {
-            break;
-        }
+    // Datei öffnen
+    if(filePath.empty()){
+        std::string filePath = "data.txt"; 
     }
-    if(outFile.is_open()) {
-        outFile.flush();
-        outFile.close();
+    std::ofstream outFile(filePath, std::ios::app);
+    if (!outFile.is_open()) {
+        std::cerr << "Failed to open file: " << filePath << "\n";
+        return;
     }
+
+    // Überprüfen, ob die Datei leer ist, um die Kopfzeile nur einmal zu schreiben
+    outFile.seekp(0, std::ios::end);
+    if (outFile.tellp() == 0) { // Datei ist leer
+        // Kopfzeile schreiben
+        outFile << "Timestamp";
+        for (const auto& id : UUID) {
+         outFile << id <<" , " ; 
+        }
+        outFile << "\n";
+    }
+
+    // Iteriere durch die erste ID, um die Reihenfolge der x-Werte zu bestimmen
+    auto firstDevice = captureData.begin();
+    const auto& firstDeviceData = firstDevice->second;
+
+    // Anzahl der Zeilen basierend auf der Größe des ersten Geräts
+    size_t numRows = firstDeviceData.size();
+
+    for (size_t i = 0; i < numRows; ++i) {
+        // Schreibe x-Wert und y-Wert der ersten ID
+        double xValue = firstDeviceData[i].first;
+        double yValueFirst = firstDeviceData[i].second;
+
+        outFile << fmt::format("{},{}", xValue, yValueFirst);
+
+        // Schreibe die y-Werte der restlichen IDs für denselben Index
+        for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
+            const auto& deviceData = it->second;
+
+            if (i < deviceData.size()) {
+                double yValue = deviceData[i].second;
+                outFile << fmt::format(",{}", yValue);
+            } else {
+                // Falls keine weiteren Werte für dieses Gerät vorhanden sind
+                outFile << ",N/A";
+            }
+        }
+        outFile << "\n"; // Zeilenumbruch nach allen IDs
+    }
+
+    outFile.close(); // Datei schließen
+    fmt::print("Data successfully written to {}\n", filePath);
 }
 
 void printDevices() {
@@ -172,13 +163,13 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWrite(std::string &filePath) {
+void printOrWrite(std::string &filePath, std::vector<std::string> &UUID) {
     std::cout << "hello" <<std::endl; 
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
+        if(filePath.empty()){
         for(const auto& [id, vec] : captureData) {
-            if(filePath.empty()) {
                 std::cout << "filepath empty" << std::endl; 
                 fmt::print("dev: {}\n", id);
                 for(const auto& [first, second] : vec) {
@@ -190,15 +181,13 @@ void printOrWrite(std::string &filePath) {
                 if(!running) {
                     break;
                 }
-            }
-            else {
-                std::cout << "filepath nicht empty" << std::endl; 
-                fmt::print("dev: {}\n", id);
-                writeDatatoFile(vec, filePath);
+         }
+        }
+        else {
+                writeDatatoFile(captureData, filePath, UUID);
             }
         }
     }
-}
 
 void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath) {
     while(running) {
@@ -206,7 +195,7 @@ void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &fileP
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWrite(filePath); // print the data in the console or save it in the given filepath 
+        printOrWrite(filePath, UUID); // print the data in the console or save it in the given filepath 
     }
 }
 
