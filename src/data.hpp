@@ -6,6 +6,7 @@
 #include "CLI/CLI.hpp"
 #include <tuple>
 #include <functional>
+#include <nlohmann/json.hpp>
 
 // Declaration
 
@@ -17,12 +18,12 @@ std::atomic<bool> running{true};
 
 void waitForExit();
 void initDevices();
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &);
+void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &, bool &);
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
-void startMeasurementAndWrite(std::vector<std::string> &, std::string &);
+void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
 void selectDevices();
-void printOrWrite(std::string &, std::vector<std::string> &); 
+void printOrWrite(std::string &, std::vector<std::string> &, bool &); 
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 
@@ -35,21 +36,48 @@ void waitForExit() { // wait until the user closes the programm by pressing ENTE
     running = false;
 }
 
+void parseDeviceMetaData(Omniscope::MetaData metaData,
+                         std::shared_ptr<OmniscopeDevice> &device) {
+  try {
+    nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
+    fmt::println("{}", metaJson.dump());
+    device->setScale(std::stod(metaJson["scale"].dump()));
+    device->setOffset(std::stod(metaJson["offset"].dump()));
+    device->setEgu(metaJson["egu"]);
+  } catch (...) {
+    fmt::print("parsing Meta Data error: {}", metaData.data);
+  }
+}
+
+
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
 
     devices = deviceManager.getDevices(VID, PID);
     std::cout << "Found " << devices.size() << " devices.\n";
-    for(const auto& device : devices){
+    for(auto& device : devices){
+        auto metaDataCb = [&](auto const &msg) {
+            if (std::holds_alternative<Omniscope::MetaData>(msg)) {
+                parseDeviceMetaData(std::get<Omniscope::MetaData>(msg), device);
+            }
+        }; 
+        auto id = device->getId().value();
+        auto sampleRate = static_cast<double>(id.sampleRate);
+        device->setTimeScale(static_cast<double>(1 / sampleRate));
+
         auto [r, g, b] = uuidToColor(device->getId()->serial);
         device->send(Omniscope::SetRgb{static_cast<std::uint8_t>(static_cast<int>(r)),
                                    static_cast<std::uint8_t>(static_cast<int>(g)),
                                    static_cast<std::uint8_t>(static_cast<int>(b))});
+         // set Callback for MetaData
+        device->setMessageCallback(metaDataCb);
+        device->send(Omniscope::GetMetaData{});
     }
 }
 
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData , std::string &filePath, std::vector<std::string> &UUID) {
+void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData , std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+    
      if (captureData.empty()) {
         std::cerr << "No data available to write.\n";
         return;
@@ -59,6 +87,7 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
     if(filePath.empty()){
         std::string filePath = "data.txt"; 
     }
+    if(!isJson){
     std::ofstream outFile(filePath, std::ios::app);
     if (!outFile.is_open()) {
         std::cerr << "Failed to open file: " << filePath << "\n";
@@ -107,6 +136,42 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
 
     outFile.close(); // Datei schließen
     fmt::print("Data successfully written to {}\n", filePath);
+    }
+    /*else {
+         // JSON-Objekt erstellen
+    nlohmann::json jsonData;
+
+    // UUIDs und Daten hinzufügen
+    for (const auto& [id, data] : captureData) {
+        // Wenn die ID nicht in der UUID-Liste enthalten ist, überspringen
+        if (std::find(UUID.begin(), UUID.end(), id) == UUID.end()) {
+            continue;
+        }
+
+        // JSON-Eintrag für die aktuelle ID
+        nlohmann::json deviceData = nlohmann::json::array();
+
+        for (const auto& [x, y] : data) {
+            deviceData.push_back({{"timestamp", x}, {"value", y}});
+        }
+
+        std::string ID = std::to_string(id.serial); 
+        // Daten der ID hinzufügen
+        jsonData[ID] = deviceData;
+    }
+
+    // JSON in Datei schreiben
+    std::ofstream outFile(filePath);
+    if (!outFile.is_open()) {
+        std::cerr << "Failed to open file: " << filePath << "\n";
+        return;
+    }
+
+    outFile << jsonData.dump(4); // JSON-Daten mit 4 Leerzeichen als Einrückung schreiben
+    outFile.close();
+
+    fmt::print("Data successfully written to {}\n", filePath);
+    }*/
 }
 
 void printDevices() {
@@ -163,8 +228,7 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWrite(std::string &filePath, std::vector<std::string> &UUID) {
-    std::cout << "hello" <<std::endl; 
+void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
@@ -184,18 +248,18 @@ void printOrWrite(std::string &filePath, std::vector<std::string> &UUID) {
          }
         }
         else {
-                writeDatatoFile(captureData, filePath, UUID);
+                writeDatatoFile(captureData, filePath, UUID, isJson);
             }
         }
     }
 
-void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath) {
+void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson) {
     while(running) {
         searchDevices();   // Init Scopes
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWrite(filePath, UUID); // print the data in the console or save it in the given filepath 
+        printOrWrite(filePath, UUID, isJson); // print the data in the console or save it in the given filepath 
     }
 }
 

@@ -14,7 +14,6 @@ FetchContent_Populate(
   GIT_TAG v2.3.2
 )
 
-
 list(APPEND CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake")
 list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_PROJECT_TOP_LEVEL_INCLUDES)
 
@@ -60,5 +59,8 @@ target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
 #target_include_directories(MiniOmni PRIVATE ${CLI11_SOURCE_DIR}/include)
 #find_package(CLI11 CONFIG REQUIRED)
 #target_link_libraries(MiniOmni PUBLIC CLI11::CLI11)
+
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
 
 target_compile_features(MiniOmni PUBLIC cxx_std_23)
