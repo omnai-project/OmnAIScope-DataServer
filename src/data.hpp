@@ -36,6 +36,20 @@ void waitForExit() { // wait until the user closes the programm by pressing ENTE
     running = false;
 }
 
+void parseDeviceMetaData(Omniscope::MetaData metaData,
+                         std::shared_ptr<OmniscopeDevice> &device) {
+  try {
+    nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
+    fmt::println("{}", metaJson.dump());
+    device->setScale(std::stod(metaJson["scale"].dump()));
+    device->setOffset(std::stod(metaJson["offset"].dump()));
+    device->setEgu(metaJson["egu"]);
+  } catch (...) {
+    fmt::print("parsing Meta Data error: {}", metaData.data);
+  }
+}
+
+
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
@@ -43,10 +57,22 @@ void initDevices() { // Initalize the connected devices
     devices = deviceManager.getDevices(VID, PID);
     std::cout << "Found " << devices.size() << " devices.\n";
     for(const auto& device : devices){
+        auto metaDataCb = [&](auto const &msg) {
+            if (std::holds_alternative<Omniscope::MetaData>(msg)) {
+                parseDeviceMetaData(std::get<Omniscope::MetaData>(msg), device);
+            }
+        }; 
+        auto id = device->getId().value();
+        auto sampleRate = static_cast<double>(id.sampleRate);
+        device->setTimeScale(static_cast<double>(1 / sampleRate));
+
         auto [r, g, b] = uuidToColor(device->getId()->serial);
         device->send(Omniscope::SetRgb{static_cast<std::uint8_t>(static_cast<int>(r)),
                                    static_cast<std::uint8_t>(static_cast<int>(g)),
                                    static_cast<std::uint8_t>(static_cast<int>(b))});
+         // set Callback for MetaData
+        device->setMessageCallback(metaDataCb);
+        device->send(Omniscope::GetMetaData{});
     }
 }
 
