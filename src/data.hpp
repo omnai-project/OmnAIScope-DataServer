@@ -6,6 +6,7 @@
 #include "CLI/CLI.hpp"
 #include <tuple>
 #include <functional>
+#include <nlohmann/json.hpp>
 
 // Declaration
 
@@ -17,12 +18,12 @@ std::atomic<bool> running{true};
 
 void waitForExit();
 void initDevices();
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &);
+void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &, bool &);
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
-void startMeasurementAndWrite(std::vector<std::string> &, std::string &);
+void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
 void selectDevices();
-void printOrWrite(std::string &, std::vector<std::string> &); 
+void printOrWrite(std::string &, std::vector<std::string> &, bool &); 
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 
@@ -49,7 +50,8 @@ void initDevices() { // Initalize the connected devices
     }
 }
 
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData , std::string &filePath, std::vector<std::string> &UUID) {
+void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData , std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+    
      if (captureData.empty()) {
         std::cerr << "No data available to write.\n";
         return;
@@ -59,6 +61,7 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
     if(filePath.empty()){
         std::string filePath = "data.txt"; 
     }
+    if(!isJson){
     std::ofstream outFile(filePath, std::ios::app);
     if (!outFile.is_open()) {
         std::cerr << "Failed to open file: " << filePath << "\n";
@@ -107,6 +110,42 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
 
     outFile.close(); // Datei schließen
     fmt::print("Data successfully written to {}\n", filePath);
+    }
+    /*else {
+         // JSON-Objekt erstellen
+    nlohmann::json jsonData;
+
+    // UUIDs und Daten hinzufügen
+    for (const auto& [id, data] : captureData) {
+        // Wenn die ID nicht in der UUID-Liste enthalten ist, überspringen
+        if (std::find(UUID.begin(), UUID.end(), id) == UUID.end()) {
+            continue;
+        }
+
+        // JSON-Eintrag für die aktuelle ID
+        nlohmann::json deviceData = nlohmann::json::array();
+
+        for (const auto& [x, y] : data) {
+            deviceData.push_back({{"timestamp", x}, {"value", y}});
+        }
+
+        std::string ID = std::to_string(id.serial); 
+        // Daten der ID hinzufügen
+        jsonData[ID] = deviceData;
+    }
+
+    // JSON in Datei schreiben
+    std::ofstream outFile(filePath);
+    if (!outFile.is_open()) {
+        std::cerr << "Failed to open file: " << filePath << "\n";
+        return;
+    }
+
+    outFile << jsonData.dump(4); // JSON-Daten mit 4 Leerzeichen als Einrückung schreiben
+    outFile.close();
+
+    fmt::print("Data successfully written to {}\n", filePath);
+    }*/
 }
 
 void printDevices() {
@@ -163,7 +202,7 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWrite(std::string &filePath, std::vector<std::string> &UUID) {
+void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
     std::cout << "hello" <<std::endl; 
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
@@ -184,18 +223,18 @@ void printOrWrite(std::string &filePath, std::vector<std::string> &UUID) {
          }
         }
         else {
-                writeDatatoFile(captureData, filePath, UUID);
+                writeDatatoFile(captureData, filePath, UUID, isJson);
             }
         }
     }
 
-void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath) {
+void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson) {
     while(running) {
         searchDevices();   // Init Scopes
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWrite(filePath, UUID); // print the data in the console or save it in the given filepath 
+        printOrWrite(filePath, UUID, isJson); // print the data in the console or save it in the given filepath 
     }
 }
 
