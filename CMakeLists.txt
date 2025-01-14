@@ -34,7 +34,7 @@ endif()
 include(cmake_helpers/BuildOptions.cmake)
 include(cmake_helpers/FindOrFetch.cmake)
 
-add_subdirectory(${CLI11_SOURCE_DIR} ${CLI11_BINARY_DIR})
+add_subdirectory(${cli11_SOURCE_DIR} ${cli11_BINARY_DIR})
 
 add_executable(MiniOmni
                src/data.cpp)
