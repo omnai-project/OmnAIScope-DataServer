@@ -229,7 +229,6 @@ void selectDevices(std::vector<std::string> &UUID) {
 }
 
 void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    std::cout << "hello" <<std::endl; 
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
