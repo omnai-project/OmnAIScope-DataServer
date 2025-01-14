@@ -56,7 +56,7 @@ void initDevices() { // Initalize the connected devices
 
     devices = deviceManager.getDevices(VID, PID);
     std::cout << "Found " << devices.size() << " devices.\n";
-    for(const auto& device : devices){
+    for(auto& device : devices){
         auto metaDataCb = [&](auto const &msg) {
             if (std::holds_alternative<Omniscope::MetaData>(msg)) {
                 parseDeviceMetaData(std::get<Omniscope::MetaData>(msg), device);
