@@ -76,12 +76,6 @@ void initDevices() { // Initalize the connected devices
 }
 
 void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-
-    if (captureData.empty()) {
-        std::cerr << "No data available to write.\n";
-        return;
-    }
-
     // Datei öffnen
     if(filePath.empty()) {
         std::string filePath = "data.txt";
@@ -97,9 +91,9 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
         outFile.seekp(0, std::ios::end);
         if (outFile.tellp() == 0) { // Datei ist leer
             // Kopfzeile schreiben
-            outFile << "Timestamp";
+            outFile << "Timestamp [s]" << "  ";
             for (const auto& id : UUID) {
-                outFile << id <<" , " ;
+                outFile << id <<" [V] , " ;
             }
             outFile << "\n";
         }
@@ -135,7 +129,6 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
         }
 
         outFile.close(); // Datei schließen
-        fmt::print("Data successfully written to {}\n", filePath);
     }
     /*else {
          // JSON-Objekt erstellen
@@ -227,30 +220,31 @@ void selectDevices(std::vector<std::string> &UUID) {
 }
 
 void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    static bool printHeader = true; 
+    static bool printHeader = true;
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
-        if(filePath.empty()) {
-            for(const auto& [id, vec] : captureData) {
-                fmt::print("dev: {}\n", id);
-                if(printHeader){
-                std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
-                printHeader = false; 
-                }
-                for(const auto& [first, second] : vec) {
-                    std::cout << first << " " << second << std::endl;
+        if(!captureData.empty()) {
+            if(filePath.empty()) {
+                for(const auto& [id, vec] : captureData) {
+                    if(printHeader) {
+                        std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
+                        printHeader = false;
+                    }
+                    for(const auto& [first, second] : vec) {
+                        std::cout << first << " " << second << std::endl;
+                        if(!running) {
+                            break;
+                        }
+                    }
                     if(!running) {
                         break;
                     }
                 }
-                if(!running) {
-                    break;
-                }
             }
-        }
-        else {
-            writeDatatoFile(captureData, filePath, UUID, isJson);
+            else {
+                writeDatatoFile(captureData, filePath, UUID, isJson);
+            }
         }
     }
 }
