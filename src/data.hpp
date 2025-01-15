@@ -7,15 +7,22 @@
 #include <tuple>
 #include <functional>
 #include <nlohmann/json.hpp>
+#include <deque>
 
 // Declaration
+
+using val_T = double;
+using ts_T = int; // timestamp
+
+using sample_T = std::tuple<ts_T, val_T, std::optional<std::vector<val_T>>>;
 
 inline OmniscopeDeviceManager deviceManager{};
 inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;
 inline std::optional<OmniscopeSampler> sampler{};
 inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
 std::atomic<bool> running{true};
-bool verbose{false}; 
+bool verbose{false};
+std::deque<sample_T> dataDeque;
 
 void waitForExit();
 void initDevices();
@@ -30,6 +37,69 @@ std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 
 // Initialization
 
+class Transformater{
+private:
+    std::deque<sample_T>& handle;
+
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string>& UUID, std::atomic<int>& counter) {
+
+        int currentPosition = 0;
+        bool startSample{true};
+        ts_T timeStamp = 0;
+        val_T firstX = 0;
+        std::optional<std::vector<val_T>> otherX;
+        if (captureData.empty()) {
+            std::cerr << "Error: captureData is empty!" << std::endl;
+            return;
+        }
+        const auto& [id, dataVector] = *captureData.begin(); // Zugriff auf das erste Element
+        size_t vectorSize = dataVector.size();
+        if(verbose) {
+            std::cout << dataVector.size() << std::endl;
+        }
+        if (!otherX.has_value()) {
+            otherX = std::vector<val_T>(); // Initialisiere mit leerem Vektor
+        }
+
+        for(currentPosition = 0; currentPosition < vectorSize; currentPosition++) {
+            for (const auto& [id, dataVector] : captureData) {
+                if (captureData.empty()) {
+                    std::cerr << "Error: captureData is empty!" << std::endl;
+                    return;
+                }
+
+                if (startSample) {
+                    timeStamp = dataVector[currentPosition].first;
+                    firstX = dataVector[currentPosition].second;
+                    startSample = false;
+                }
+                else if(!startSample) {
+                    otherX->push_back(dataVector[currentPosition].second);
+                }
+
+            }
+            sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
+            handle.push_back(sample);
+            otherX->clear();
+            counter ++;
+            startSample = true;
+        }
+    }
+
+public:
+    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter)
+        : handle(handle) {
+        if(verbose) {
+            std::cout << "Transformation wird gestartet" << std::endl;
+        }
+        transformData(captureData, handle, UUID, counter);
+        if(verbose) {
+            std::cout << "Daten erfolgreich in Deque" << std::endl;
+        }
+    }
+    ~Transformater() {}
+};
+
 void waitForExit() { // wait until the user closes the programm by pressing ENTER
     std::cout << "OmnAIView is starting. Press enter to stop the programm." << std::endl;
     std::cin.sync();
@@ -41,15 +111,16 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
                          std::shared_ptr<OmniscopeDevice> &device) {
     try {
         nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
-        if(verbose){
-        fmt::println("{}", metaJson.dump());
+        if(verbose) {
+            fmt::println("{}", metaJson.dump());
         }
         device->setScale(std::stod(metaJson["scale"].dump()));
         device->setOffset(std::stod(metaJson["offset"].dump()));
         device->setEgu(metaJson["egu"]);
     } catch (...) {
-        if(verbose){
-        fmt::print("This Scope is not calibrated: {}", metaData.data);}
+        if(verbose) {
+            fmt::print("This Scope is not calibrated: {}", metaData.data);
+        }
     }
 }
 
@@ -57,8 +128,8 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
-    if(verbose){
-        std::cout << "Geraete werden gesucht" << std::endl; 
+    if(verbose) {
+        std::cout << "Geraete werden gesucht" << std::endl;
     }
 
     devices = deviceManager.getDevices(VID, PID);
@@ -136,8 +207,8 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
         }
 
         outFile.close(); // Datei schließen
-        if(verbose){
-            std::cout << "Daten wurden geschrieben" << std::endl; 
+        if(verbose) {
+            std::cout << "Daten wurden geschrieben" << std::endl;
         }
     }
     /*else {
@@ -234,6 +305,10 @@ void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &i
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
+
+        // Transform Data and push in deque -> das muss hier einmal komplett erfolgen sonst bekomm ich Datenverlustprobleme
+        // starte seperaten WriterThread der die ganze Zeit aus der deque liest und schreibt -> Das Objekt läuft die ganze Zeit bis der Nutzer das Programm schließt
+        // Das darf also nur einmal ausgeführt werden
         if(!captureData.empty()) {
             if(filePath.empty()) {
                 for(const auto& [id, vec] : captureData) {
@@ -259,13 +334,29 @@ void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &i
     }
 }
 
+void printOrWrite2(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+    static bool printHeader = true;
+    static std::atomic<int> counter(0);
+    if(sampler.has_value()) { // write Data into file
+        captureData.clear();
+        sampler->copyOut(captureData);
+
+        // Transform Data and push in deque -> das muss hier einmal komplett erfolgen sonst bekomm ich Datenverlustprobleme
+        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter);
+        delete transformi;
+
+        // starte seperaten WriterThread der die ganze Zeit aus der deque liest und schreibt -> Das Objekt läuft die ganze Zeit bis der Nutzer das Programm schließt
+        // Das darf also nur einmal ausgeführt werden
+    }
+}
+
 void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson) {
     while(running) {
         searchDevices();   // Init Scopes
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWrite(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
+        printOrWrite2(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
     }
 }
 
