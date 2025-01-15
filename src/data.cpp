@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
 
     //Search for devices
     bool search = false;
-    app.add_flag("-s,--search", search, "Prints all connected devices");
+    app.add_flag("-s,--search", search, "Prints all connected devices, color identical to current LED color");
 
     std::vector<std::string> startUUID;
     app.add_option("-d,--device, --dev", startUUID, "Start the devices with the given UUIDs");
