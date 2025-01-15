@@ -228,13 +228,17 @@ void selectDevices(std::vector<std::string> &UUID) {
 }
 
 void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+    static bool printHeader = true; 
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
         if(filePath.empty()) {
             for(const auto& [id, vec] : captureData) {
                 fmt::print("dev: {}\n", id);
-                std::cout << "Time[s]" << " , " <<"Voltage[V]" <<std::endl;
+                if(printHeader){
+                std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
+                printHeader = false; 
+                }
                 for(const auto& [first, second] : vec) {
                     std::cout << first << " " << second << std::endl;
                     if(!running) {
