@@ -40,7 +40,7 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
                          std::shared_ptr<OmniscopeDevice> &device) {
     try {
         nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
-        fmt::println("{}", metaJson.dump());
+        //fmt::println("{}", metaJson.dump());
         device->setScale(std::stod(metaJson["scale"].dump()));
         device->setOffset(std::stod(metaJson["offset"].dump()));
         device->setEgu(metaJson["egu"]);
@@ -55,7 +55,6 @@ void initDevices() { // Initalize the connected devices
     constexpr int PID = 0x000au;
 
     devices = deviceManager.getDevices(VID, PID);
-    std::cout << "Found " << devices.size() << " devices.\n";
     for(auto& device : devices) {
         auto metaDataCb = [&](auto const &msg) {
             if (std::holds_alternative<Omniscope::MetaData>(msg)) {
