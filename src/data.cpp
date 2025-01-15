@@ -16,10 +16,20 @@ int main(int argc, char **argv) {
     std::string filePath;
     app.add_option("-o,--output", filePath, "Add a file you want the data to be saved in");
 
-    bool isJson = false; 
-    app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format"); 
+    bool isJson = false;
+    app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
 
-    CLI11_PARSE(app, argc, argv);
+    if (argc <= 1) {// if no parameters are given
+        std::cout << app.help() << std::endl;
+        return 0;
+    }
+    try {
+        CLI11_PARSE(app, argc, argv);
+    } catch (const CLI::ParseError &e) {
+        // if input is incorrect
+        std::cerr << app.help() << std::endl;
+        return app.exit(e);
+    }
 
 
     if(search) { // search for devices and print the UUID
