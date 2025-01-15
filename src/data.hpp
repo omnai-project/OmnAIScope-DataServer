@@ -12,7 +12,7 @@
 // Declaration
 
 using val_T = double;
-using ts_T = int; // timestamp
+using ts_T = double; // timestamp
 
 using sample_T = std::tuple<ts_T, val_T, std::optional<std::vector<val_T>>>;
 
@@ -48,41 +48,40 @@ private:
         ts_T timeStamp = 0;
         val_T firstX = 0;
         std::optional<std::vector<val_T>> otherX;
+
         if (captureData.empty()) {
-            std::cerr << "Error: captureData is empty!" << std::endl;
             return;
         }
-        const auto& [id, dataVector] = *captureData.begin(); // Zugriff auf das erste Element
-        size_t vectorSize = dataVector.size();
-        if(verbose) {
-            std::cout << dataVector.size() << std::endl;
-        }
-        if (!otherX.has_value()) {
-            otherX = std::vector<val_T>(); // Initialisiere mit leerem Vektor
-        }
 
-        for(currentPosition = 0; currentPosition < vectorSize; currentPosition++) {
-            for (const auto& [id, dataVector] : captureData) {
-                if (captureData.empty()) {
-                    std::cerr << "Error: captureData is empty!" << std::endl;
-                    return;
-                }
+// Zugriff auf das erste Gerät
+        const auto& [firstId, firstDeviceData] = *captureData.begin();
+        size_t vectorSize = firstDeviceData.size();
 
-                if (startSample) {
-                    timeStamp = dataVector[currentPosition].first;
-                    firstX = dataVector[currentPosition].second;
-                    startSample = false;
-                }
-                else if(!startSample) {
-                    otherX->push_back(dataVector[currentPosition].second);
-                }
-
+        for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
+            if (!running) {
+                return;
             }
+
+            // Werte aus dem ersten Gerät
+            timeStamp = firstDeviceData[currentPosition].first;
+            firstX = firstDeviceData[currentPosition].second;
+
+            // Werte aus den anderen Geräten
+            otherX = std::vector<val_T>();
+            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
+                const auto& deviceData = it->second;
+                if (currentPosition < deviceData.size()) {
+                    otherX->push_back(deviceData[currentPosition].second);
+                }
+            }
+
             sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
             handle.push_back(sample);
-            otherX->clear();
-            counter ++;
-            startSample = true;
+            counter++;
+
+            if (verbose) {
+                std::cout << "Sample " << counter << " geschrieben." << std::endl;
+            }
         }
     }
 
@@ -98,6 +97,73 @@ public:
         }
     }
     ~Transformater() {}
+};
+
+class Writer{
+private:
+    std::string format;
+    std::ofstream outFile;
+    std::deque<sample_T>& handle;
+    std::thread writerThread;
+
+    void write(std::string &filePath, std::atomic<int> &counter) {
+
+        if(verbose) {
+            std::cout << "Writer startet" << std::endl;
+        }
+        if (!outFile) {
+            std::cout << "File nicht korrekt geöffnet" << std::endl;
+            throw std::ios_base::failure("Error opening file: " + filePath);
+        }
+
+        outFile << "Timestamp [s]" << "  " << "UUID1" << " " << "UUID2" << std::endl;
+
+        outFile.flush();
+
+        while(running) {
+            if(counter > 0) {
+                sample_T sample = handle.front();
+                handle.pop_front();
+
+                outFile << std::get<0>(sample) << " " << std::get<1>(sample) << " ";
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for(const auto& value : optionalValues.value()) {
+                        outFile << value << " ";
+                    }
+                }
+                outFile << "\n";
+                counter --;
+            }
+        }
+
+        if(!running) {
+            outFile.flush();
+            outFile.close();
+        }
+        if(verbose) {
+            std::cout << "Schreiben beendet" << std::endl;
+        }
+    }
+
+public:
+    Writer(std::string& format, std::string &filePath, std::deque<sample_T>& handle, std::atomic<int>& counter)
+        :handle(handle), format(format) {
+        outFile.open(filePath, std::ios::app);
+        if (!outFile) {
+            throw std::ios_base::failure("Error opening file: " + filePath);
+        }
+
+        // Starte den Thread erst nach dem Öffnen der Datei
+        writerThread = std::thread(&Writer::write, this, std::ref(filePath), std::ref(counter));
+    }
+
+    ~Writer() {
+        if(writerThread.joinable()) {
+            writerThread.join();
+        }
+    }
+
 };
 
 void waitForExit() { // wait until the user closes the programm by pressing ENTER
@@ -335,7 +401,7 @@ void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &i
 }
 
 void printOrWrite2(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    static bool printHeader = true;
+    static bool startWriter = true;
     static std::atomic<int> counter(0);
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
@@ -347,6 +413,11 @@ void printOrWrite2(std::string &filePath, std::vector<std::string> &UUID, bool &
 
         // starte seperaten WriterThread der die ganze Zeit aus der deque liest und schreibt -> Das Objekt läuft die ganze Zeit bis der Nutzer das Programm schließt
         // Das darf also nur einmal ausgeführt werden
+        std::string format = "csv";
+        if(startWriter && !filePath.empty()) {
+            Writer* writi = new Writer(format, filePath, dataDeque, counter);
+            startWriter = false;
+        }
     }
 }
 
