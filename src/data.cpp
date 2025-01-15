@@ -19,6 +19,12 @@ int main(int argc, char **argv) {
     bool isJson = false;
     app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
 
+    bool printVersion = true; 
+
+    if(printVersion){
+        std::cout << "Version " << PROJECT_VERSION << std::endl;
+    }
+
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;
         return 0;
