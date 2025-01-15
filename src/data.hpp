@@ -15,6 +15,7 @@ inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;
 inline std::optional<OmniscopeSampler> sampler{};
 inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
 std::atomic<bool> running{true};
+bool verbose{false}; 
 
 void waitForExit();
 void initDevices();
@@ -40,12 +41,15 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
                          std::shared_ptr<OmniscopeDevice> &device) {
     try {
         nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
-        //fmt::println("{}", metaJson.dump());
+        if(verbose){
+        fmt::println("{}", metaJson.dump());
+        }
         device->setScale(std::stod(metaJson["scale"].dump()));
         device->setOffset(std::stod(metaJson["offset"].dump()));
         device->setEgu(metaJson["egu"]);
     } catch (...) {
-        fmt::print("parsing Meta Data error: {}", metaData.data);
+        if(verbose){
+        fmt::print("This Scope is not calibrated: {}", metaData.data);}
     }
 }
 
@@ -53,6 +57,9 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
+    if(verbose){
+        std::cout << "Geraete werden gesucht" << std::endl; 
+    }
 
     devices = deviceManager.getDevices(VID, PID);
     for(auto& device : devices) {
@@ -129,6 +136,9 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
         }
 
         outFile.close(); // Datei schließen
+        if(verbose){
+            std::cout << "Daten wurden geschrieben" << std::endl; 
+        }
     }
     /*else {
          // JSON-Objekt erstellen
