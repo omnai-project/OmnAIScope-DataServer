@@ -16,10 +16,10 @@ int main(int argc, char **argv) {
     std::string filePath;
     app.add_option("-o,--output", filePath, "Add a file you want the data to be saved in");
 
-    app.add_flag("-v,--verbose", verbose, "Add extra for debugging information"); 
+    app.add_flag("-v,--verbose", verbose, "Add extra for debugging information");
 
     bool isJson = false;
-    //app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
+    app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
 
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;

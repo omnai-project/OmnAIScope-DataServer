@@ -44,9 +44,8 @@ private:
     std::deque<sample_T>& handle;
 
     void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string>& UUID, std::atomic<int>& counter) {
-
+        // transform Data into the sample format
         int currentPosition = 0;
-        bool startSample{true};
         ts_T timeStamp = 0;
         val_T firstX = 0;
         std::optional<std::vector<val_T>> otherX;
@@ -55,7 +54,7 @@ private:
             return;
         }
 
-// Zugriff auf das erste Gerät
+        // Access to first device
         const auto& [firstId, firstDeviceData] = *captureData.begin();
         size_t vectorSize = firstDeviceData.size();
 
@@ -64,11 +63,11 @@ private:
                 return;
             }
 
-            // Werte aus dem ersten Gerät
+            // values from first device
             timeStamp = firstDeviceData[currentPosition].first;
             firstX = firstDeviceData[currentPosition].second;
 
-            // Werte aus den anderen Geräten
+            // values from other devices
             otherX = std::vector<val_T>();
             for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
                 const auto& deviceData = it->second;
@@ -79,6 +78,7 @@ private:
 
             sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
 
+            //thread save acces to handle and counter
             std::lock_guard<std::mutex> lock(handleMutex);
             handle.push_back(sample);
             counter++;
@@ -96,12 +96,18 @@ public:
         if(verbose) {
             std::cout << "Transformation wird gestartet" << std::endl;
         }
+
         transformData(captureData, handle, UUID, counter);
+
         if(verbose) {
             std::cout << "Daten erfolgreich in Deque" << std::endl;
         }
     }
-    ~Transformater() {}
+    ~Transformater() {
+        if(verbose) {
+            std::cout << "Transformater deleted" << std::endl;
+        }
+    }
 };
 
 class Writer{
@@ -110,21 +116,9 @@ private:
     std::ofstream outFile;
     std::deque<sample_T>& handle;
     std::thread writerThread;
+    std::vector<std::string> UUID;
 
-    void write(std::string &filePath, std::atomic<int> &counter) {
-
-        if(verbose) {
-            std::cout << "Writer startet" << std::endl;
-        }
-        if (!outFile) {
-            std::cout << "File nicht korrekt geöffnet" << std::endl;
-            throw std::ios_base::failure("Error opening file: " + filePath);
-        }
-
-        outFile << "Timestamp [s]" << "  " << "UUID1" << " " << "UUID2" << std::endl;
-
-        outFile.flush();
-
+    void write_csv(std::atomic<int> &counter) {
         while(running) {
             if(counter > 0) {
                 sample_T sample;
@@ -143,22 +137,87 @@ private:
                 counter --;
             }
         }
+    }
 
-        if(!running) {
-            outFile.flush();
-            outFile.close();
+    void write_json(std::atomic<int> &counter) {
+
+        outFile << "\"data\": " << "{";
+        while(running) {
+            if(counter > 0) {
+                int i = 0;
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
+                handle.pop_front();
+
+                outFile << "{\"timestamp\" : " << std::get<0>(sample) << ","<< "\"value\": [" << std::get<1>(sample);
+                if (i < UUID.size()) {
+                    outFile << ",";
+                    i++;
+                }
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for(const auto& value : optionalValues.value()) {
+                        outFile << value;
+                        if (i < UUID.size()-1) {
+                            outFile << ",";
+                            i++;
+                        }
+                    }
+                }
+                outFile << "]" << "}";
+                counter --;
+                i = 0;
+            }
         }
+    }
+
+    void write(std::string &filePath, std::atomic<int> &counter) {
+
+        if(verbose) {
+            std::cout << "Writer startet" << std::endl;
+        }
+
+        // Write into a file
+        if(!filePath.empty()) {
+            // choose format
+            if(format == "csv") {
+                write_csv(counter);
+            }
+            else if(format == "json") {
+                write_json(counter);
+            }
+        }
+
         if(verbose) {
             std::cout << "Schreiben beendet" << std::endl;
         }
     }
 
 public:
-    Writer(std::string& format, std::string &filePath, std::deque<sample_T>& handle, std::atomic<int>& counter)
-        :handle(handle), format(format) {
+    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter)
+        :handle(handle), format(format), UUID(UUID) {
         outFile.open(filePath, std::ios::app);
         if (!outFile) {
             throw std::ios_base::failure("Error opening file: " + filePath);
+        }// Write header
+        else if(format == "csv") {
+            outFile << "# Timestamp [s]" << "  ";
+            for(const auto& uuid : UUID) {
+                outFile << uuid << "[V] " ;
+            }
+            outFile << "\n";
+        }
+        else if(format == "json") {
+            outFile << "{\"metadata\": {";
+            for (size_t i = 0; i < UUID.size(); ++i) {
+                outFile << "UUID" << ": " << "\"" << UUID[i] << "\"";
+                if (i < UUID.size() - 1) {
+                    outFile << ",";
+                }
+            }
+
+            outFile << "},";
         }
 
         // Starte den Thread erst nach dem Öffnen der Datei
@@ -166,6 +225,17 @@ public:
     }
 
     ~Writer() {
+
+        if(format == "json") {
+            outFile << "}";
+        }
+        // write Trailer
+        outFile.flush();
+        outFile.close();
+
+        if(verbose) {
+            std::cout << "Writer destroyed" << std::endl;
+        }
         if(writerThread.joinable()) {
             writerThread.join();
         }
@@ -409,20 +479,23 @@ void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &i
 
 void printOrWrite2(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
     static bool startWriter = true;
+    std::string format;
+    if(isJson) {
+        format = "json";
+    }
+    else format = "csv";
+
     static std::atomic<int> counter(0);
+
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
 
-        // Transform Data and push in deque -> das muss hier einmal komplett erfolgen sonst bekomm ich Datenverlustprobleme
-        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter);
+        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter); // transform data into sample format
         delete transformi;
 
-        // starte seperaten WriterThread der die ganze Zeit aus der deque liest und schreibt -> Das Objekt läuft die ganze Zeit bis der Nutzer das Programm schließt
-        // Das darf also nur einmal ausgeführt werden
-        std::string format = "csv";
         if(startWriter && !filePath.empty()) {
-            Writer* writi = new Writer(format, filePath, dataDeque, counter);
+            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter); // write data into a file or the console
             startWriter = false;
         }
     }
