@@ -113,6 +113,7 @@ public:
 class Writer{
 private:
     std::string format;
+    std::string filePath;
     std::ofstream outFile;
     std::deque<sample_T>& handle;
     std::thread writerThread;
@@ -172,7 +173,28 @@ private:
         }
     }
 
-    void write(std::string &filePath, std::atomic<int> &counter) {
+    void write_console(std::atomic<int> &counter) {
+        while(running) {
+            if(counter > 0) {
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
+                handle.pop_front();
+
+                std::cout << std::get<0>(sample) << " " << std::get<1>(sample) << " ";
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for(const auto& value : optionalValues.value()) {
+                        std::cout << value << " ";
+                    }
+                }
+                std::cout << "\n";
+                counter --;
+            }
+        }
+    }
+
+    void write(std::atomic<int> &counter) {
 
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
@@ -188,6 +210,9 @@ private:
                 write_json(counter);
             }
         }
+        else {
+            write_console(counter);
+        }
 
         if(verbose) {
             std::cout << "Schreiben beendet" << std::endl;
@@ -196,42 +221,53 @@ private:
 
 public:
     Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter)
-        :handle(handle), format(format), UUID(UUID) {
-        outFile.open(filePath, std::ios::app);
-        if (!outFile) {
-            throw std::ios_base::failure("Error opening file: " + filePath);
-        }// Write header
-        else if(format == "csv") {
-            outFile << "# Timestamp [s]" << "  ";
-            for(const auto& uuid : UUID) {
-                outFile << uuid << "[V] " ;
-            }
-            outFile << "\n";
-        }
-        else if(format == "json") {
-            outFile << "{\"metadata\": {";
-            for (size_t i = 0; i < UUID.size(); ++i) {
-                outFile << "UUID" << ": " << "\"" << UUID[i] << "\"";
-                if (i < UUID.size() - 1) {
-                    outFile << ",";
+        :handle(handle), format(format), UUID(UUID), filePath(filePath) {
+        if(!filePath.empty()) {
+            outFile.open(filePath, std::ios::app);
+            if (!outFile) {
+                throw std::ios_base::failure("Error opening file: " + filePath);
+            }// Write header
+            else if(format == "csv") {
+                outFile << "# Timestamp [s]" << "  ";
+                for(const auto& uuid : UUID) {
+                    outFile << uuid << "[V] " ;
                 }
+                outFile << "\n";
             }
+            else if(format == "json") {
+                outFile << "{\"metadata\": {";
+                for (size_t i = 0; i < UUID.size(); ++i) {
+                    outFile << "UUID" << ": " << "\"" << UUID[i] << "\"";
+                    if (i < UUID.size() - 1) {
+                        outFile << ",";
+                    }
+                }
 
-            outFile << "},";
+                outFile << "},";
+            }
+        }
+        else {
+            std::cout << "# Timestamp [s]" << "  ";
+            for(const auto& uuid : UUID) {
+                std::cout << uuid << "[V] " ;
+            }
+            std::cout << "\n";
         }
 
         // Starte den Thread erst nach dem Öffnen der Datei
-        writerThread = std::thread(&Writer::write, this, std::ref(filePath), std::ref(counter));
+        writerThread = std::thread(&Writer::write, this, std::ref(counter));
     }
 
     ~Writer() {
-
-        if(format == "json") {
-            outFile << "}";
+        if(!filePath.empty()) {
+            if(format == "json") {
+                outFile << "}";
+            }
+            // write Trailer
+            outFile.flush();
+            outFile.close();
         }
-        // write Trailer
-        outFile.flush();
-        outFile.close();
+        else std::cout << "Schreiben beendet" << std::endl;
 
         if(verbose) {
             std::cout << "Writer destroyed" << std::endl;
@@ -494,7 +530,7 @@ void printOrWrite2(std::string &filePath, std::vector<std::string> &UUID, bool &
         Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter); // transform data into sample format
         delete transformi;
 
-        if(startWriter && !filePath.empty()) {
+        if(startWriter) {
             Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter); // write data into a file or the console
             startWriter = false;
         }
