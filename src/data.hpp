@@ -28,12 +28,11 @@ std::mutex handleMutex;
 
 void waitForExit();
 void initDevices();
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &, bool &);
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
 void selectDevices();
-void printOrWrite(std::string &, std::vector<std::string> &, bool &);
+void printOrWriteData(std::string &, std::vector<std::string> &, bool &);
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 
@@ -332,101 +331,6 @@ void initDevices() { // Initalize the connected devices
     }
 }
 
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    // Datei öffnen
-    if(filePath.empty()) {
-        std::string filePath = "data.txt";
-    }
-    if(!isJson) {
-        std::ofstream outFile(filePath, std::ios::app);
-        if (!outFile.is_open()) {
-            std::cerr << "Failed to open file: " << filePath << "\n";
-            return;
-        }
-
-        // Überprüfen, ob die Datei leer ist, um die Kopfzeile nur einmal zu schreiben
-        outFile.seekp(0, std::ios::end);
-        if (outFile.tellp() == 0) { // Datei ist leer
-            // Kopfzeile schreiben
-            outFile << "Timestamp [s]" << "  ";
-            for (const auto& id : UUID) {
-                outFile << id <<" [V] , " ;
-            }
-            outFile << "\n";
-        }
-
-        // Iteriere durch die erste ID, um die Reihenfolge der x-Werte zu bestimmen
-        auto firstDevice = captureData.begin();
-        const auto& firstDeviceData = firstDevice->second;
-
-        // Anzahl der Zeilen basierend auf der Größe des ersten Geräts
-        size_t numRows = firstDeviceData.size();
-
-        for (size_t i = 0; i < numRows; ++i) {
-            // Schreibe x-Wert und y-Wert der ersten ID
-            double xValue = firstDeviceData[i].first;
-            double yValueFirst = firstDeviceData[i].second;
-
-            outFile << fmt::format("{},{}", xValue, yValueFirst);
-
-            // Schreibe die y-Werte der restlichen IDs für denselben Index
-            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
-                const auto& deviceData = it->second;
-
-                if (i < deviceData.size()) {
-                    double yValue = deviceData[i].second;
-                    outFile << fmt::format(",{}", yValue);
-                }
-                else {
-                    // Falls keine weiteren Werte für dieses Gerät vorhanden sind
-                    outFile << ",N/A";
-                }
-            }
-            outFile << "\n"; // Zeilenumbruch nach allen IDs
-        }
-
-        outFile.close(); // Datei schließen
-        if(verbose) {
-            std::cout << "Daten wurden geschrieben" << std::endl;
-        }
-    }
-    /*else {
-         // JSON-Objekt erstellen
-    nlohmann::json jsonData;
-
-    // UUIDs und Daten hinzufügen
-    for (const auto& [id, data] : captureData) {
-        // Wenn die ID nicht in der UUID-Liste enthalten ist, überspringen
-        if (std::find(UUID.begin(), UUID.end(), id) == UUID.end()) {
-            continue;
-        }
-
-        // JSON-Eintrag für die aktuelle ID
-        nlohmann::json deviceData = nlohmann::json::array();
-
-        for (const auto& [x, y] : data) {
-            deviceData.push_back({{"timestamp", x}, {"value", y}});
-        }
-
-        std::string ID = std::to_string(id.serial);
-        // Daten der ID hinzufügen
-        jsonData[ID] = deviceData;
-    }
-
-    // JSON in Datei schreiben
-    std::ofstream outFile(filePath);
-    if (!outFile.is_open()) {
-        std::cerr << "Failed to open file: " << filePath << "\n";
-        return;
-    }
-
-    outFile << jsonData.dump(4); // JSON-Daten mit 4 Leerzeichen als Einrückung schreiben
-    outFile.close();
-
-    fmt::print("Data successfully written to {}\n", filePath);
-    }*/
-}
-
 void printDevices() {
 
     // get IDs
@@ -479,41 +383,7 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    static bool printHeader = true;
-    if(sampler.has_value()) { // write Data into file
-        captureData.clear();
-        sampler->copyOut(captureData);
-
-        // Transform Data and push in deque -> das muss hier einmal komplett erfolgen sonst bekomm ich Datenverlustprobleme
-        // starte seperaten WriterThread der die ganze Zeit aus der deque liest und schreibt -> Das Objekt läuft die ganze Zeit bis der Nutzer das Programm schließt
-        // Das darf also nur einmal ausgeführt werden
-        if(!captureData.empty()) {
-            if(filePath.empty()) {
-                for(const auto& [id, vec] : captureData) {
-                    if(printHeader) {
-                        std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
-                        printHeader = false;
-                    }
-                    for(const auto& [first, second] : vec) {
-                        std::cout << first << " " << second << std::endl;
-                        if(!running) {
-                            break;
-                        }
-                    }
-                    if(!running) {
-                        break;
-                    }
-                }
-            }
-            else {
-                writeDatatoFile(captureData, filePath, UUID, isJson);
-            }
-        }
-    }
-}
-
-void printOrWrite2(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
     static bool startWriter = true;
     std::string format;
     if(isJson) {
@@ -543,7 +413,7 @@ void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &fileP
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWrite2(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
+        printOrWriteData(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
     }
 }
 
