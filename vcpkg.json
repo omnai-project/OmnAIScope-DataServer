@@ -5,8 +5,11 @@
         "pkgconf",
         "fmt",
         "libusb",
-    "boost-crc", 
-    "nlohmann-json"
+    "boost-crc",
+    "boost-asio",
+    "boost-thread",
+    "nlohmann-json", 
+    "crow"
     ]
 }
 

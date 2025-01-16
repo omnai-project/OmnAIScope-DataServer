@@ -21,14 +21,33 @@ set(CMAKE_TOOLCHAIN_FILE "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake" 
 
 project("MiniOmni" VERSION 0.0.1)
 
+find_package(Threads)
+find_package(ZLIB)
+find_package(OpenSSL)
+
+if(OPENSSL_FOUND)
+    include_directories(${OPENSSL_INCLUDE_DIR})
+endif()
+
+if (NOT CMAKE_BUILD_TYPE)
+    message(STATUS "No build type selected, default to Release")
+    set(CMAKE_BUILD_TYPE "Release")
+endif()
+
+
 if(MSVC)
     add_compile_options(
         $<$<CONFIG:>:/MT> #---------|
         $<$<CONFIG:Debug>:/MTd> #---|-- Statically link the runtime libraries
         $<$<CONFIG:Release>:/MT> #--|
     )
+    set(Boost_USE_STATIC_LIBS "On")
+    find_package( Boost 1.70 COMPONENTS system thread regex REQUIRED )
+else()
+    find_package( Boost 1.70 COMPONENTS system thread REQUIRED )
 endif()
 
+include_directories(${Boost_INCLUDE_DIR})
 
 include(cmake_helpers/BuildOptions.cmake)
 include(cmake_helpers/FindOrFetch.cmake)
@@ -43,6 +62,9 @@ target_add_default_build_options(MiniOmni PUBLIC)
 find_or_fetch_package(
   cmake_git_version 0.1 GIT_REPOSITORY
   https://github.com/dominicpoeschko/cmake_git_version.git GIT_TAG master)
+
+find_package(Crow CONFIG REQUIRED)
+target_link_libraries(MiniOmni PRIVATE Crow::Crow)
 
 add_subdirectory(aglio)
 target_link_libraries(MiniOmni PUBLIC aglio::aglio)
@@ -63,4 +85,5 @@ target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
 find_package(nlohmann_json CONFIG REQUIRED)
 target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
 
+target_compile_definitions(MiniOmni PUBLIC BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 target_compile_features(MiniOmni PUBLIC cxx_std_23)

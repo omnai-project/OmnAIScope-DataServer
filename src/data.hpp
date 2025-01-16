@@ -1,3 +1,4 @@
+#include <crow.h> // this needs to be included first 
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -8,7 +9,7 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 #include <deque>
-
+#include <unordered_set>
 // Declaration
 
 using val_T = double;
@@ -31,6 +32,7 @@ void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
+void startMeasurementAndSend(std::vector<std::string> &);
 void selectDevices();
 void printOrWriteData(std::string &, std::vector<std::string> &, bool &);
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
@@ -414,6 +416,24 @@ void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &fileP
         selectDevices(UUID);  // select only chosen devices
 
         printOrWriteData(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
+    }
+}
+
+void handleWS(){
+  //  crow::SimpleApp app; 
+}
+
+void startMeasurementAndSend(std::vector<std::string> &UUID){
+    static bool wsopen = false; 
+    while(running){
+        
+        searchDevices(); 
+
+        selectDevices(UUID);
+        
+        if(!wsopen){
+            handleWS(); 
+        }
     }
 }
 

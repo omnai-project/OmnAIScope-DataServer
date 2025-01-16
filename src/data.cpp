@@ -16,10 +16,14 @@ int main(int argc, char **argv) {
     std::string filePath;
     app.add_option("-o,--output", filePath, "Add a file you want the data to be saved in");
 
-    app.add_flag("-v,--verbose", verbose, "Add extra for debugging information");
+    bool websocket = false; 
+    app.add_flag("-ws, --websocket", websocket, "Start websocket"); 
 
     bool isJson = false;
     app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
+
+    app.add_flag("-v,--verbose", verbose, "Add extra for debugging information");
+
 
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;
@@ -42,7 +46,10 @@ int main(int argc, char **argv) {
     while(running) {
         if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
             std::thread exitThread(waitForExit);
-            startMeasurementAndWrite(startUUID, filePath, isJson);
+            if(websocket){
+            startMeasurementAndSend(startUUID);
+            }
+            else startMeasurementAndWrite(startUUID, filePath, isJson);
             exitThread.join(); // exit the programm with enter
         }
     }
