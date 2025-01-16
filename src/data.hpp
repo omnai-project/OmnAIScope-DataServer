@@ -23,6 +23,8 @@ inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureDa
 std::atomic<bool> running{true};
 bool verbose{false};
 std::deque<sample_T> dataDeque;
+std::mutex handleMutex;
+
 
 void waitForExit();
 void initDevices();
@@ -76,8 +78,11 @@ private:
             }
 
             sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
+
+            std::lock_guard<std::mutex> lock(handleMutex);
             handle.push_back(sample);
             counter++;
+
 
             if (verbose) {
                 std::cout << "Sample " << counter << " geschrieben." << std::endl;
@@ -122,7 +127,9 @@ private:
 
         while(running) {
             if(counter > 0) {
-                sample_T sample = handle.front();
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
                 handle.pop_front();
 
                 outFile << std::get<0>(sample) << " " << std::get<1>(sample) << " ";
