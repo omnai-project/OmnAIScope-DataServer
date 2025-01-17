@@ -180,6 +180,8 @@ private:
                 sample = handle.front();
                 handle.pop_front();
 
+                std::cout << "\r["; 
+
                 std::cout << std::get<0>(sample) << " " << std::get<1>(sample) << " ";
                 const auto& optionalValues = std::get<2>(sample);
                 if(optionalValues) {
@@ -187,7 +189,8 @@ private:
                         std::cout << value << " ";
                     }
                 }
-                std::cout << "\n";
+                std::cout << "]" << std::flush;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
                 counter --;
             }
         }
@@ -227,9 +230,9 @@ public:
                 throw std::ios_base::failure("Error opening file: " + filePath);
             }// Write header
             else if(format == "csv") {
-                outFile << "# Timestamp [s]" << "  ";
+                outFile << "# Timestamp [s]" << " , ";
                 for(const auto& uuid : UUID) {
-                    outFile << uuid << "[V] " ;
+                    outFile << uuid << " [V] " ;
                 }
                 outFile << "\n";
             }
