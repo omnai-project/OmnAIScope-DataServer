@@ -5,8 +5,14 @@
         "pkgconf",
         "fmt",
         "libusb",
-    "boost-crc", 
-    "nlohmann-json"
+        "nlohmann-json",
+        "boost-asio",
+        "boost-system",
+        "boost-thread",
+        "boost-filesystem",
+        "boost-regex",
+        "openssl",
+        "crow"
     ]
 }
 

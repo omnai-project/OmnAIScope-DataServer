@@ -19,6 +19,8 @@ list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_PROJECT_TOP_LEVEL_INCLUDE
 
 set(CMAKE_TOOLCHAIN_FILE "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti")
+
 project("MiniOmni" VERSION 0.0.1)
 
 if(MSVC)
@@ -46,6 +48,15 @@ find_or_fetch_package(
 
 add_subdirectory(aglio)
 target_link_libraries(MiniOmni PUBLIC aglio::aglio)
+
+find_package(Boost REQUIRED COMPONENTS system thread filesystem asio regex)
+target_link_libraries(MiniOmni PRIVATE Boost::asio Boost::system Boost::thread Boost::filesystem Boost::regex)
+
+find_package(OpenSSL REQUIRED)
+target_link_libraries(MiniOmni PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+
+find_package(Crow CONFIG REQUIRED)
+target_link_libraries(MiniOmni PRIVATE Crow::Crow)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)

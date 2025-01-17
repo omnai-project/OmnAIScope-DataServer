@@ -165,6 +165,8 @@ Make sure the following packages are installed:
 - `cmake`
 - `autoconf`
 - `libudev-dev`
+- `automake`
+- `autoconf-archive`
 
 ### Installing Required Packages (Debian-based Systems)
 

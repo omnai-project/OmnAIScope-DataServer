@@ -1,9 +1,9 @@
 [submodule "ai_omniscope-v2-communication_sw"]
 	path = ai_omniscope-v2-communication_sw
 	url = git@github.com:AI-Gruppe/ai_omniscope-v2-communication_sw.git
-[submodule "cmake_helpers"]
-	path = cmake_helpers
-	url = https://github.com/dominicpoeschko/cmake_helpers.git
 [submodule "aglio"]
 	path = aglio
 	url = https://github.com/dominicpoeschko/aglio.git
+[submodule "cmake_helpers"]
+	path = cmake_helpers
+	url = git@github.com:AI-Gruppe/cmake_helpers.git
