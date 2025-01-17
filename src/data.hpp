@@ -1,5 +1,6 @@
-#include <crow.h>
+//#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 #include <boost/asio.hpp>
+#include <crow.h>
 #include <iostream>
 #include <chrono>
 #include <thread>

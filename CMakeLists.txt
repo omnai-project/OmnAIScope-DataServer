@@ -25,10 +25,13 @@ project("MiniOmni" VERSION 0.0.1)
 
 if(MSVC)
     add_compile_options(
-        $<$<CONFIG:>:/MT> #---------|
-        $<$<CONFIG:Debug>:/MTd> #---|-- Statically link the runtime libraries
-        $<$<CONFIG:Release>:/MT> #--|
+        $<$<CONFIG:>:/MD> #---------|
+        $<$<CONFIG:Debug>:/MDd> #---|-- Statically link the runtime libraries
+        $<$<CONFIG:Release>:/MD> #--|
     )
+    add_compile_options(/permissive-)
+    set(Boost_USE_STATIC_LIBS "On")
+    find_package( Boost 1.70 COMPONENTS system thread regex REQUIRED )
 endif()
 
 
@@ -50,7 +53,10 @@ add_subdirectory(aglio)
 target_link_libraries(MiniOmni PUBLIC aglio::aglio)
 
 find_package(Boost REQUIRED COMPONENTS system thread filesystem asio regex)
+target_include_directories(MiniOmni PRIVATE ${Boost_INCLUDE_DIRS})
 target_link_libraries(MiniOmni PRIVATE Boost::asio Boost::system Boost::thread Boost::filesystem Boost::regex)
+target_compile_definitions(MiniOmni PUBLIC ASIO_STANDALONE=0)
+target_compile_definitions(MiniOmni PUBLIC BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 
 find_package(OpenSSL REQUIRED)
 target_link_libraries(MiniOmni PRIVATE OpenSSL::SSL OpenSSL::Crypto)
@@ -73,5 +79,8 @@ target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
+
+target_compile_definitions(MiniOmni PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
+
 
 target_compile_features(MiniOmni PUBLIC cxx_std_23)

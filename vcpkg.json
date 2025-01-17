@@ -6,6 +6,7 @@
         "fmt",
         "libusb",
         "nlohmann-json",
+        "boost-crc",
         "boost-asio",
         "boost-system",
         "boost-thread",
