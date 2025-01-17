@@ -15,6 +15,7 @@ inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;
 inline std::optional<OmniscopeSampler> sampler{};
 inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
 std::atomic<bool> running{true};
+bool verbose{false}; 
 
 void waitForExit();
 void initDevices();
@@ -40,12 +41,15 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
                          std::shared_ptr<OmniscopeDevice> &device) {
     try {
         nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
+        if(verbose){
         fmt::println("{}", metaJson.dump());
+        }
         device->setScale(std::stod(metaJson["scale"].dump()));
         device->setOffset(std::stod(metaJson["offset"].dump()));
         device->setEgu(metaJson["egu"]);
     } catch (...) {
-        fmt::print("parsing Meta Data error: {}", metaData.data);
+        if(verbose){
+        fmt::print("This Scope is not calibrated: {}", metaData.data);}
     }
 }
 
@@ -53,9 +57,11 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
+    if(verbose){
+        std::cout << "Geraete werden gesucht" << std::endl; 
+    }
 
     devices = deviceManager.getDevices(VID, PID);
-    std::cout << "Found " << devices.size() << " devices.\n";
     for(auto& device : devices) {
         auto metaDataCb = [&](auto const &msg) {
             if (std::holds_alternative<Omniscope::MetaData>(msg)) {
@@ -77,12 +83,6 @@ void initDevices() { // Initalize the connected devices
 }
 
 void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-
-    if (captureData.empty()) {
-        std::cerr << "No data available to write.\n";
-        return;
-    }
-
     // Datei öffnen
     if(filePath.empty()) {
         std::string filePath = "data.txt";
@@ -98,9 +98,9 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
         outFile.seekp(0, std::ios::end);
         if (outFile.tellp() == 0) { // Datei ist leer
             // Kopfzeile schreiben
-            outFile << "Timestamp";
+            outFile << "Timestamp [s]" << "  ";
             for (const auto& id : UUID) {
-                outFile << id <<" , " ;
+                outFile << id <<" [V] , " ;
             }
             outFile << "\n";
         }
@@ -136,7 +136,9 @@ void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, doubl
         }
 
         outFile.close(); // Datei schließen
-        fmt::print("Data successfully written to {}\n", filePath);
+        if(verbose){
+            std::cout << "Daten wurden geschrieben" << std::endl; 
+        }
     }
     /*else {
          // JSON-Objekt erstellen
@@ -228,30 +230,31 @@ void selectDevices(std::vector<std::string> &UUID) {
 }
 
 void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    static bool printHeader = true; 
+    static bool printHeader = true;
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
-        if(filePath.empty()) {
-            for(const auto& [id, vec] : captureData) {
-                fmt::print("dev: {}\n", id);
-                if(printHeader){
-                std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
-                printHeader = false; 
-                }
-                for(const auto& [first, second] : vec) {
-                    std::cout << first << " " << second << std::endl;
+        if(!captureData.empty()) {
+            if(filePath.empty()) {
+                for(const auto& [id, vec] : captureData) {
+                    if(printHeader) {
+                        std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
+                        printHeader = false;
+                    }
+                    for(const auto& [first, second] : vec) {
+                        std::cout << first << " " << second << std::endl;
+                        if(!running) {
+                            break;
+                        }
+                    }
                     if(!running) {
                         break;
                     }
                 }
-                if(!running) {
-                    break;
-                }
             }
-        }
-        else {
-            writeDatatoFile(captureData, filePath, UUID, isJson);
+            else {
+                writeDatatoFile(captureData, filePath, UUID, isJson);
+            }
         }
     }
 }
