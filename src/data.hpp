@@ -8,6 +8,7 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 #include <deque>
+#include <cmath>
 
 // Declaration
 
@@ -35,6 +36,7 @@ void selectDevices();
 void printOrWriteData(std::string &, std::vector<std::string> &, bool &);
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
+double round_to(double value, int decimals);
 
 // Initialization
 
@@ -63,15 +65,15 @@ private:
             }
 
             // values from first device
-            timeStamp = firstDeviceData[currentPosition].first;
-            firstX = firstDeviceData[currentPosition].second;
+            timeStamp = round_to(firstDeviceData[currentPosition].first, 3);
+            firstX = round_to(firstDeviceData[currentPosition].second, 3);
 
             // values from other devices
             otherX = std::vector<val_T>();
             for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
                 const auto& deviceData = it->second;
                 if (currentPosition < deviceData.size()) {
-                    otherX->push_back(deviceData[currentPosition].second);
+                    otherX->push_back(round_to(deviceData[currentPosition].second,3));
                 }
             }
 
@@ -126,11 +128,14 @@ private:
                 sample = handle.front();
                 handle.pop_front();
 
-                outFile << std::get<0>(sample) << " " << std::get<1>(sample) << " ";
+                outFile << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
                 const auto& optionalValues = std::get<2>(sample);
                 if(optionalValues) {
-                    for(const auto& value : optionalValues.value()) {
-                        outFile << value << " ";
+                    for(size_t i = 0; i < optionalValues->size(); i++ ) {
+                        outFile << (*optionalValues)[i];
+                        if(i < optionalValues->size()-1) {
+                            outFile << " , " ;
+                        }
                     }
                 }
                 outFile << "\n";
@@ -141,7 +146,7 @@ private:
 
     void write_json(std::atomic<int> &counter) {
 
-        outFile << "\"data\": " << "{";
+        outFile << "\"data\": " << "[";
         while(running) {
             if(counter > 0) {
                 int i = 0;
@@ -151,7 +156,7 @@ private:
                 handle.pop_front();
 
                 outFile << "{\"timestamp\" : " << std::get<0>(sample) << ","<< "\"value\": [" << std::get<1>(sample);
-                if (i < UUID.size()) {
+                if (i < UUID.size() -1) {
                     outFile << ",";
                     i++;
                 }
@@ -165,11 +170,12 @@ private:
                         }
                     }
                 }
-                outFile << "]" << "}";
+                outFile << "]" << "}" << ",";
                 counter --;
                 i = 0;
             }
         }
+        outFile << "]";
     }
 
     void write_console(std::atomic<int> &counter) {
@@ -180,17 +186,23 @@ private:
                 sample = handle.front();
                 handle.pop_front();
 
-                std::cout << "\r["; 
+                std::cout << "\r[";
 
-                std::cout << std::get<0>(sample) << " " << std::get<1>(sample) << " ";
+                std::cout << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
                 const auto& optionalValues = std::get<2>(sample);
                 if(optionalValues) {
-                    for(const auto& value : optionalValues.value()) {
-                        std::cout << value << " ";
+                    if(optionalValues) {
+                        for(size_t i = 0; i < optionalValues->size(); i++ ) {
+                            std::cout << (*optionalValues)[i];
+                            if(i < optionalValues->size()-1) {
+                                std::cout << " , " ;
+                            }
+                        }
                     }
                 }
+
                 std::cout << "]" << std::flush;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 counter --;
             }
         }
@@ -224,34 +236,43 @@ private:
 public:
     Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter)
         :handle(handle), format(format), UUID(UUID), filePath(filePath) {
+        std::cout << std::fixed << std::setprecision(3);
+
         if(!filePath.empty()) {
             outFile.open(filePath, std::ios::app);
             if (!outFile) {
                 throw std::ios_base::failure("Error opening file: " + filePath);
             }// Write header
             else if(format == "csv") {
-                outFile << "# Timestamp [s]" << " , ";
-                for(const auto& uuid : UUID) {
-                    outFile << uuid << " [V] " ;
+                outFile << "Timestamp [s]" << " , ";
+                for(size_t i = 0; i < UUID.size(); ++i) {
+                    outFile << UUID[i];
+                    if(i < UUID.size()-1) {
+                        outFile << " , ";
+                    }
                 }
                 outFile << "\n";
             }
             else if(format == "json") {
                 outFile << "{\"metadata\": {";
+                outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
                 for (size_t i = 0; i < UUID.size(); ++i) {
-                    outFile << "UUID" << ": " << "\"" << UUID[i] << "\"";
+                    outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
                     if (i < UUID.size() - 1) {
                         outFile << ",";
                     }
                 }
-
+                outFile << "}" << "]";  // optional metadata: measurement, host
                 outFile << "},";
             }
         }
         else {
-            std::cout << "# Timestamp [s]" << "  ";
-            for(const auto& uuid : UUID) {
-                std::cout << uuid << "[V] " ;
+            std::cout << "Timestamp [s]" << " , ";
+            for (size_t i = 0; i < UUID.size(); ++i) {
+                std::cout << UUID[i] << " [V]";
+                if (i < UUID.size() - 1) {
+                    std::cout << " , ";
+                }
             }
             std::cout << "\n";
         }
@@ -435,6 +456,11 @@ std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& uuid) {
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
     auto [r, g, b] = rgb; // Tupel entpacken
     return fmt::format("\033[38;2;{};{};{}m", r, g, b); // ANSI-Farbcode generieren
+}
+
+double round_to(double value, int decimals) {
+    double factor = std::pow(10.0, decimals);
+    return std::round(value * factor) / factor;
 }
 
 
