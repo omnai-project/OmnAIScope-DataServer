@@ -1,6 +1,30 @@
+# Introduction 
+
+The MiniOmni Project is a temporary project aimed at developing a Minimum Viable Product (MVP) for the OmnAIView2.0 backend. The project’s primary objective is to create a backend system capable of retrieving data from multiple OmnAIScopes and providing access to this data to various front-end interfaces in multiple formats. Additionally, the project includes a Command-Line Interface (CLI) tool designed to provide direct data output into various file formats or directly into the console.
+
+The MiniOmni Project currently offers the following features:
+
+- CLI Tool: Enables data retrieval from multiple OmnAIScopes via a command-line interface, with the ability to output data in various formats. (Details can be found in the section "CLI Tool Usage.")
+
+
+# CLI-Tool Usage 
+
+The MiniOmni program can be executed via the command line on Windows, Linux, and Raspberry Pi devices running ARM architecture.
+
+## Features and Options
+
+The CLI-Tool includes the following functionalities: 
+
+-h, --help Displays a help message with detailed usage instructions in the console.
+-s, --search Lists the UUIDs of all connected devices, displaying their current LED color for easy identification.
+-d, --device, --dev Initiates a measurement session for specified devices by their UUIDs. Multiple devices can be specified, and their data will be displayed directly in the console. 
+-o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.
+-j, --json Changes the output file format to JSON. 
+-v, --verbose Prints out additional information about the software's process.
+
 # Setting Up and Building the MiniOmni Project
 
-This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as a Rasberry Pi with Debian and ARM. 
+This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as on Rasberry Pi devices running ARM architecture. 
 
 ---
 # Windows

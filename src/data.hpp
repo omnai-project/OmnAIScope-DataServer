@@ -7,28 +7,300 @@
 #include <tuple>
 #include <functional>
 #include <nlohmann/json.hpp>
+#include <deque>
+#include <cmath>
 
 // Declaration
+
+using val_T = double;
+using ts_T = double; // timestamp
+
+using sample_T = std::tuple<ts_T, val_T, std::optional<std::vector<val_T>>>;
 
 inline OmniscopeDeviceManager deviceManager{};
 inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;
 inline std::optional<OmniscopeSampler> sampler{};
 inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
 std::atomic<bool> running{true};
-bool verbose{false}; 
+bool verbose{false};
+std::deque<sample_T> dataDeque;
+std::mutex handleMutex;
+
 
 void waitForExit();
 void initDevices();
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>>&, std::string &, std::vector<std::string> &, bool &);
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
 void selectDevices();
-void printOrWrite(std::string &, std::vector<std::string> &, bool &);
+void printOrWriteData(std::string &, std::vector<std::string> &, bool &);
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
+double round_to(double value, int decimals);
 
 // Initialization
+
+class Transformater{
+private:
+    std::deque<sample_T>& handle;
+
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string>& UUID, std::atomic<int>& counter) {
+        // transform Data into the sample format
+        int currentPosition = 0;
+        ts_T timeStamp = 0;
+        val_T firstX = 0;
+        std::optional<std::vector<val_T>> otherX;
+
+        if (captureData.empty()) {
+            return;
+        }
+
+        // Access to first device
+        const auto& [firstId, firstDeviceData] = *captureData.begin();
+        size_t vectorSize = firstDeviceData.size();
+
+        for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
+            if (!running) {
+                return;
+            }
+
+            // values from first device
+            timeStamp = round_to(firstDeviceData[currentPosition].first, 3);
+            firstX = round_to(firstDeviceData[currentPosition].second, 3);
+
+            // values from other devices
+            otherX = std::vector<val_T>();
+            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
+                const auto& deviceData = it->second;
+                if (currentPosition < deviceData.size()) {
+                    otherX->push_back(round_to(deviceData[currentPosition].second,3));
+                }
+            }
+
+            sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
+
+            //thread save acces to handle and counter
+            std::lock_guard<std::mutex> lock(handleMutex);
+            handle.push_back(sample);
+            counter++;
+
+
+            if (verbose) {
+                std::cout << "Sample " << counter << " geschrieben." << std::endl;
+            }
+        }
+    }
+
+public:
+    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter)
+        : handle(handle) {
+        if(verbose) {
+            std::cout << "Transformation wird gestartet" << std::endl;
+        }
+
+        transformData(captureData, handle, UUID, counter);
+
+        if(verbose) {
+            std::cout << "Daten erfolgreich in Deque" << std::endl;
+        }
+    }
+    ~Transformater() {
+        if(verbose) {
+            std::cout << "Transformater deleted" << std::endl;
+        }
+    }
+};
+
+class Writer{
+private:
+    std::string format;
+    std::string filePath;
+    std::ofstream outFile;
+    std::deque<sample_T>& handle;
+    std::thread writerThread;
+    std::vector<std::string> UUID;
+
+    void write_csv(std::atomic<int> &counter) {
+        while(running) {
+            if(counter > 0) {
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
+                handle.pop_front();
+
+                outFile << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for(size_t i = 0; i < optionalValues->size(); i++ ) {
+                        outFile << (*optionalValues)[i];
+                        if(i < optionalValues->size()-1) {
+                            outFile << " , " ;
+                        }
+                    }
+                }
+                outFile << "\n";
+                counter --;
+            }
+        }
+    }
+
+    void write_json(std::atomic<int> &counter) {
+
+        outFile << "\"data\": " << "[";
+        while(running) {
+            if(counter > 0) {
+                int i = 0;
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
+                handle.pop_front();
+
+                outFile << "{\"timestamp\" : " << std::get<0>(sample) << ","<< "\"value\": [" << std::get<1>(sample);
+                if (i < UUID.size() -1) {
+                    outFile << ",";
+                    i++;
+                }
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for(const auto& value : optionalValues.value()) {
+                        outFile << value;
+                        if (i < UUID.size()-1) {
+                            outFile << ",";
+                            i++;
+                        }
+                    }
+                }
+                outFile << "]" << "}" << ",";
+                counter --;
+                i = 0;
+            }
+        }
+        outFile << "]";
+    }
+
+    void write_console(std::atomic<int> &counter) {
+        while(running) {
+            if(counter > 0) {
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
+                handle.pop_front();
+
+                std::cout << "\r[";
+
+                std::cout << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    if(optionalValues) {
+                        for(size_t i = 0; i < optionalValues->size(); i++ ) {
+                            std::cout << (*optionalValues)[i];
+                            if(i < optionalValues->size()-1) {
+                                std::cout << " , " ;
+                            }
+                        }
+                    }
+                }
+
+                std::cout << "]" << std::flush;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                counter --;
+            }
+        }
+    }
+
+    void write(std::atomic<int> &counter) {
+
+        if(verbose) {
+            std::cout << "Writer startet" << std::endl;
+        }
+
+        // Write into a file
+        if(!filePath.empty()) {
+            // choose format
+            if(format == "csv") {
+                write_csv(counter);
+            }
+            else if(format == "json") {
+                write_json(counter);
+            }
+        }
+        else {
+            write_console(counter);
+        }
+
+        if(verbose) {
+            std::cout << "Schreiben beendet" << std::endl;
+        }
+    }
+
+public:
+    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter)
+        :handle(handle), format(format), UUID(UUID), filePath(filePath) {
+        std::cout << std::fixed << std::setprecision(3);
+
+        if(!filePath.empty()) {
+            outFile.open(filePath, std::ios::app);
+            if (!outFile) {
+                throw std::ios_base::failure("Error opening file: " + filePath);
+            }// Write header
+            else if(format == "csv") {
+                outFile << "Timestamp [s]" << " , ";
+                for(size_t i = 0; i < UUID.size(); ++i) {
+                    outFile << UUID[i];
+                    if(i < UUID.size()-1) {
+                        outFile << " , ";
+                    }
+                }
+                outFile << "\n";
+            }
+            else if(format == "json") {
+                outFile << "{\"metadata\": {";
+                outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
+                for (size_t i = 0; i < UUID.size(); ++i) {
+                    outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
+                    if (i < UUID.size() - 1) {
+                        outFile << ",";
+                    }
+                }
+                outFile << "}" << "]";  // optional metadata: measurement, host
+                outFile << "},";
+            }
+        }
+        else {
+            std::cout << "Timestamp [s]" << " , ";
+            for (size_t i = 0; i < UUID.size(); ++i) {
+                std::cout << UUID[i] << " [V]";
+                if (i < UUID.size() - 1) {
+                    std::cout << " , ";
+                }
+            }
+            std::cout << "\n";
+        }
+
+        // Starte den Thread erst nach dem Öffnen der Datei
+        writerThread = std::thread(&Writer::write, this, std::ref(counter));
+    }
+
+    ~Writer() {
+        if(!filePath.empty()) {
+            if(format == "json") {
+                outFile << "}";
+            }
+            // write Trailer
+            outFile.flush();
+            outFile.close();
+        }
+        else std::cout << "Schreiben beendet" << std::endl;
+
+        if(verbose) {
+            std::cout << "Writer destroyed" << std::endl;
+        }
+        if(writerThread.joinable()) {
+            writerThread.join();
+        }
+    }
+
+};
 
 void waitForExit() { // wait until the user closes the programm by pressing ENTER
     std::cout << "OmnAIView is starting. Press enter to stop the programm." << std::endl;
@@ -41,15 +313,16 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
                          std::shared_ptr<OmniscopeDevice> &device) {
     try {
         nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
-        if(verbose){
-        fmt::println("{}", metaJson.dump());
+        if(verbose) {
+            fmt::println("{}", metaJson.dump());
         }
         device->setScale(std::stod(metaJson["scale"].dump()));
         device->setOffset(std::stod(metaJson["offset"].dump()));
         device->setEgu(metaJson["egu"]);
     } catch (...) {
-        if(verbose){
-        fmt::print("This Scope is not calibrated: {}", metaData.data);}
+        if(verbose) {
+            fmt::print("This Scope is not calibrated: {}", metaData.data);
+        }
     }
 }
 
@@ -57,8 +330,8 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
-    if(verbose){
-        std::cout << "Geraete werden gesucht" << std::endl; 
+    if(verbose) {
+        std::cout << "Geraete werden gesucht" << std::endl;
     }
 
     devices = deviceManager.getDevices(VID, PID);
@@ -80,101 +353,6 @@ void initDevices() { // Initalize the connected devices
         device->setMessageCallback(metaDataCb);
         device->send(Omniscope::GetMetaData{});
     }
-}
-
-void writeDatatoFile(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    // Datei öffnen
-    if(filePath.empty()) {
-        std::string filePath = "data.txt";
-    }
-    if(!isJson) {
-        std::ofstream outFile(filePath, std::ios::app);
-        if (!outFile.is_open()) {
-            std::cerr << "Failed to open file: " << filePath << "\n";
-            return;
-        }
-
-        // Überprüfen, ob die Datei leer ist, um die Kopfzeile nur einmal zu schreiben
-        outFile.seekp(0, std::ios::end);
-        if (outFile.tellp() == 0) { // Datei ist leer
-            // Kopfzeile schreiben
-            outFile << "Timestamp [s]" << "  ";
-            for (const auto& id : UUID) {
-                outFile << id <<" [V] , " ;
-            }
-            outFile << "\n";
-        }
-
-        // Iteriere durch die erste ID, um die Reihenfolge der x-Werte zu bestimmen
-        auto firstDevice = captureData.begin();
-        const auto& firstDeviceData = firstDevice->second;
-
-        // Anzahl der Zeilen basierend auf der Größe des ersten Geräts
-        size_t numRows = firstDeviceData.size();
-
-        for (size_t i = 0; i < numRows; ++i) {
-            // Schreibe x-Wert und y-Wert der ersten ID
-            double xValue = firstDeviceData[i].first;
-            double yValueFirst = firstDeviceData[i].second;
-
-            outFile << fmt::format("{},{}", xValue, yValueFirst);
-
-            // Schreibe die y-Werte der restlichen IDs für denselben Index
-            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
-                const auto& deviceData = it->second;
-
-                if (i < deviceData.size()) {
-                    double yValue = deviceData[i].second;
-                    outFile << fmt::format(",{}", yValue);
-                }
-                else {
-                    // Falls keine weiteren Werte für dieses Gerät vorhanden sind
-                    outFile << ",N/A";
-                }
-            }
-            outFile << "\n"; // Zeilenumbruch nach allen IDs
-        }
-
-        outFile.close(); // Datei schließen
-        if(verbose){
-            std::cout << "Daten wurden geschrieben" << std::endl; 
-        }
-    }
-    /*else {
-         // JSON-Objekt erstellen
-    nlohmann::json jsonData;
-
-    // UUIDs und Daten hinzufügen
-    for (const auto& [id, data] : captureData) {
-        // Wenn die ID nicht in der UUID-Liste enthalten ist, überspringen
-        if (std::find(UUID.begin(), UUID.end(), id) == UUID.end()) {
-            continue;
-        }
-
-        // JSON-Eintrag für die aktuelle ID
-        nlohmann::json deviceData = nlohmann::json::array();
-
-        for (const auto& [x, y] : data) {
-            deviceData.push_back({{"timestamp", x}, {"value", y}});
-        }
-
-        std::string ID = std::to_string(id.serial);
-        // Daten der ID hinzufügen
-        jsonData[ID] = deviceData;
-    }
-
-    // JSON in Datei schreiben
-    std::ofstream outFile(filePath);
-    if (!outFile.is_open()) {
-        std::cerr << "Failed to open file: " << filePath << "\n";
-        return;
-    }
-
-    outFile << jsonData.dump(4); // JSON-Daten mit 4 Leerzeichen als Einrückung schreiben
-    outFile.close();
-
-    fmt::print("Data successfully written to {}\n", filePath);
-    }*/
 }
 
 void printDevices() {
@@ -229,32 +407,26 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWrite(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
-    static bool printHeader = true;
+void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+    static bool startWriter = true;
+    std::string format;
+    if(isJson) {
+        format = "json";
+    }
+    else format = "csv";
+
+    static std::atomic<int> counter(0);
+
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
-        if(!captureData.empty()) {
-            if(filePath.empty()) {
-                for(const auto& [id, vec] : captureData) {
-                    if(printHeader) {
-                        std::cout << "Time[s]" << " , " << "Voltage[V]" <<std::endl;
-                        printHeader = false;
-                    }
-                    for(const auto& [first, second] : vec) {
-                        std::cout << first << " " << second << std::endl;
-                        if(!running) {
-                            break;
-                        }
-                    }
-                    if(!running) {
-                        break;
-                    }
-                }
-            }
-            else {
-                writeDatatoFile(captureData, filePath, UUID, isJson);
-            }
+
+        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter); // transform data into sample format
+        delete transformi;
+
+        if(startWriter) {
+            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter); // write data into a file or the console
+            startWriter = false;
         }
     }
 }
@@ -265,7 +437,7 @@ void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &fileP
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWrite(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
+        printOrWriteData(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
     }
 }
 
@@ -284,6 +456,11 @@ std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& uuid) {
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
     auto [r, g, b] = rgb; // Tupel entpacken
     return fmt::format("\033[38;2;{};{};{}m", r, g, b); // ANSI-Farbcode generieren
+}
+
+double round_to(double value, int decimals) {
+    double factor = std::pow(10.0, decimals);
+    return std::round(value * factor) / factor;
 }
 
 
