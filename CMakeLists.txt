@@ -99,5 +99,4 @@ target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
 
 target_compile_definitions(MiniOmni PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
 
-
 target_compile_features(MiniOmni PUBLIC cxx_std_23)
