@@ -450,7 +450,12 @@ void WSTest(){
           CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
           std::lock_guard<std::mutex> _(mtx);
           users.insert(&conn);
-      }); 
+      })
+        .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
+          CROW_LOG_INFO << "websocket connection closed: " << reason;
+          std::lock_guard<std::mutex> _(mtx);
+          users.erase(&conn);
+      });
  
 
 
