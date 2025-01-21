@@ -2,17 +2,18 @@
     "name": "miniomni",
     "version": "1.0",
     "dependencies": [
-        "asio",
         "pkgconf",
         "fmt",
         "libusb",
         "nlohmann-json",
         "boost-crc",
-        "boost-system",
         "boost-asio",
-        "boost-date-time",
+        "boost-system",
+        "boost-thread",
+        "boost-filesystem",
+        "boost-regex",
         "openssl",
-        "zlib"
+        "crow"
     ]
 }
 
