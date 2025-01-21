@@ -455,9 +455,19 @@ void WSTest(){
           CROW_LOG_INFO << "websocket connection closed: " << reason;
           std::lock_guard<std::mutex> _(mtx);
           users.erase(&conn);
-      });
- 
+      })
+     .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
+        CROW_LOG_INFO << "Received message: " << data;
+        std::lock_guard<std::mutex> _(mtx);
+
+        // Broadcast the message to all connected clients
+        for (auto user : users) {
+            if (user != &conn) {
+                user->send_text(data);
+            }
+        }
+    });
 
 
-    app.port(18080).multithreaded().run();
+    app.port(8080).multithreaded().run();
 }
