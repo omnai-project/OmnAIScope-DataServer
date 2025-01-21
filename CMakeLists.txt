@@ -14,6 +14,23 @@ FetchContent_Populate(
   GIT_TAG v2.3.2
 )
 
+# get latest git tag
+execute_process(
+    COMMAND git describe --tags --abbrev=0
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+# Fallback if no git tag exists
+if (NOT GIT_VERSION)
+    set(GIT_VERSION "0.0.0") # standard version
+endif()
+
+# Setze die Version in deinem Projekt
+message(STATUS "Project version: ${GIT_VERSION}")
+add_definitions(-DPROJECT_VERSION="${GIT_VERSION}")
+
 list(APPEND CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake")
 list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_PROJECT_TOP_LEVEL_INCLUDES)
 
