@@ -29,9 +29,9 @@ if(MSVC)
         $<$<CONFIG:Debug>:/MDd> #---|-- Statically link the runtime libraries
         $<$<CONFIG:Release>:/MD> #--|
     )
-    add_compile_options(/permissive-)
-    set(Boost_USE_STATIC_LIBS "On")
-    find_package( Boost 1.70 COMPONENTS system thread regex REQUIRED )
+    #add_compile_options(/permissive-)
+    #set(Boost_USE_STATIC_LIBS "On")
+    #find_package( Boost 1.70 COMPONENTS system thread regex REQUIRED )
 endif()
 
 
