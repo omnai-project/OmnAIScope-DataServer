@@ -31,13 +31,13 @@ FetchContent_Populate(
     SOURCE_DIR "${CMAKE_BINARY_DIR}/crow"
 )
 
-#if(MSVC)
-  #  add_compile_options(
-   #     $<$<CONFIG:>:/MD> #---------|
-    #    $<$<CONFIG:Debug>:/MDd> #---|-- Statically link the runtime libraries
-     #   $<$<CONFIG:Release>:/MD> #--|
-    #)
-#endif()
+if(MSVC)
+    add_compile_options(
+        $<$<CONFIG:>:/MD> #---------|
+        $<$<CONFIG:Debug>:/MDd> #---|-- Statically link the runtime libraries
+        $<$<CONFIG:Release>:/MD> #--|
+    )
+endif()
 
 
 include(cmake_helpers/BuildOptions.cmake)
