@@ -50,7 +50,8 @@ int main(int argc, char **argv) {
     }
 
     if(WS){
-        WSTest(); 
+        WSTest(); // auf extra Thread
+        // startMeasurementandWrite() --> ohne ausgabe durch Writer --> Writer transformiert in JSON object --> muss in extra Thread laufen 
     }
 
     while(running) {

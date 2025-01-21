@@ -473,15 +473,40 @@ void WSTest(){
 
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
+    std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
+    static bool open = false; 
+
 
     CROW_WEBSOCKET_ROUTE(app, "/ws")
       .onopen([&](crow::websocket::connection& conn) {
+            open = true; 
           CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
           std::lock_guard<std::mutex> _(mtx);
           users.insert(&conn);
+
+          conn.send_text("Hello, connection established");
+          thread_control_flags[&conn] = true;
+
+          std::thread([&conn, &users, &mtx]() {
+            try{
+                while(open){
+                     std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
+                     std::lock_guard<std::mutex> _(mtx);        
+                     conn.send_text("Hello"); 
+                }
+          } catch (const std::exception& e) {
+                    CROW_LOG_ERROR << "Error in data generation thread: " << e.what();
+                }
+          }).detach(); 
       })
         .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
+          open = false; 
           CROW_LOG_INFO << "websocket connection closed: " << reason;
+
+          if (thread_control_flags.find(&conn) != thread_control_flags.end()) { // stop data thread 
+                    thread_control_flags[&conn] = false;
+                    thread_control_flags.erase(&conn);
+                }
           std::lock_guard<std::mutex> _(mtx);
           users.erase(&conn);
       })
