@@ -439,4 +439,20 @@ std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
     return fmt::format("\033[38;2;{};{};{}m", r, g, b); // ANSI-Farbcode generieren
 }
 
+void WSTest(){
+    crow::SimpleApp app;
 
+    std::mutex mtx;
+    std::unordered_set<crow::websocket::connection*> users;
+
+    CROW_WEBSOCKET_ROUTE(app, "/ws")
+      .onopen([&](crow::websocket::connection& conn) {
+          CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
+          std::lock_guard<std::mutex> _(mtx);
+          users.insert(&conn);
+      }); 
+ 
+
+
+    app.port(18080).multithreaded().run();
+}

@@ -21,6 +21,9 @@ int main(int argc, char **argv) {
     bool isJson = false;
     app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
 
+    bool WS = false; 
+    app.add_flag("-w,--websocket", WS, "Start WS"); 
+
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;
         return 0;
@@ -37,6 +40,10 @@ int main(int argc, char **argv) {
     if(search) { // search for devices and print the UUID
         searchDevices();
         printDevices();
+    }
+
+    if(WS){
+        WSTest(); 
     }
 
     while(running) {
