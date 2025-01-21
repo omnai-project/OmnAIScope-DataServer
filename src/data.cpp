@@ -23,6 +23,9 @@ int main(int argc, char **argv) {
 
     bool WS = false; 
     app.add_flag("-w,--websocket", WS, "Start WS"); 
+    
+    bool printVersion = false; 
+    app.add_flag("--version", printVersion, "Prints the current version. Version is set via a git tag."); 
 
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;
@@ -36,6 +39,10 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
 
+    if(printVersion){
+        std::cout << "Version " << PROJECT_VERSION << std::endl;
+        running = false; 
+    }
 
     if(search) { // search for devices and print the UUID
         searchDevices();
