@@ -21,6 +21,7 @@ The CLI-Tool includes the following functionalities:
 -o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.
 -j, --json Changes the output file format to JSON. 
 -v, --verbose Prints out additional information about the software's process.
+--version Prints out the current SW version 
 
 # Setting Up and Building the MiniOmni Project
 
