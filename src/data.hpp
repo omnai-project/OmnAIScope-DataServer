@@ -237,7 +237,7 @@ private:
     }
 
     void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex) {
-        constexpr int batchSize = 10;
+        constexpr int batchSize = 1000;
         nlohmann::json currentBatch;
         currentBatch["data"] = nlohmann::json::array();
 
@@ -254,12 +254,13 @@ private:
                 // add sample to Json object
                 nlohmann::json sampleObject;
                 sampleObject["timestamp"] = std::get<0>(sample);
-                sampleObject["value"] = std::get<1>(sample);
+                sampleObject["value"] = nlohmann::json::array();
+                sampleObject["value"].push_back(std::get<1>(sample));
 
                 const auto& optionalValues = std::get<2>(sample);
                 if(optionalValues) {
-                    for(const auto& value : optionalValues.value()) {
-                        sampleObject["value"].push_back(value);
+                    for (size_t i = 0; i < optionalValues->size(); ++i) {
+                        sampleObject["value"].push_back((*optionalValues)[i]);
                     }
                 }
 
