@@ -2,6 +2,9 @@
 
 
 int main(int argc, char **argv) {
+    std::signal(SIGINT, customSignalHandler);
+
+    running = true;
 
 // Create Optional CLI Tool
     CLI::App app{"OmnAI CLI"};
@@ -21,11 +24,11 @@ int main(int argc, char **argv) {
     bool isJson = false;
     app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
 
-    bool WS = false; 
-    app.add_flag("-w,--websocket", WS, "Starts the websocket. To send data a UUID has to be given"); 
-    
-    bool printVersion = false; 
-    app.add_flag("--version", printVersion, "Prints the current version. Version is set via a git tag."); 
+    bool WS = false;
+    app.add_flag("-w,--websocket", WS, "Starts the websocket. To send data a UUID has to be given");
+
+    bool printVersion = false;
+    app.add_flag("--version", printVersion, "Prints the current version. Version is set via a git tag.");
 
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;
@@ -39,9 +42,9 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
 
-    if(printVersion){
+    if(printVersion) {
         std::cout << "Version " << PROJECT_VERSION << std::endl;
-        running = false; 
+        running = false;
     }
 
     if(search) { // search for devices and print the UUID
@@ -49,21 +52,47 @@ int main(int argc, char **argv) {
         printDevices();
     }
 
-    if(WS){
-        std::thread exitThread(waitForExit);
-        std::thread webSocket(WSTest); 
-        if(!startUUID.empty()){
-        startMeasurementAndWrite(startUUID, filePath, isJson, WS);
+    if(WS) {
+        websocket = std::thread(WSTest);
+        if(!startUUID.empty()) {
+            startMeasurementAndWrite(startUUID, filePath, isJson, WS);
         }
-        webSocket.join();
-        exitThread.join(); 
     }
 
     while(running) {
         if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
-            std::thread exitThread(waitForExit);
             startMeasurementAndWrite(startUUID, filePath, isJson, WS);
-            exitThread.join(); // exit the programm with enter
         }
+    }
+
+    if(!running) {
+        crowApp.stop();
+        if(verbose) {
+            std::cout << "Websocket closed" << std::endl;
+        }
+        if(websocketActive) {
+            while(!websocket.joinable()) {
+
+            }
+            if(websocket.joinable()) {
+                websocket.join();
+                if(verbose) {
+                    std::cout << "Websocket thread was joined" << std::endl;
+                }
+            }
+        }
+        websocketActive = false;
+        if(dataThreadActive) {
+            while(!dequeThread.joinable()) {}
+            if(dequeThread.joinable()) {
+                dequeThread.join();
+                dataThreadActive = false;
+                if(verbose) {
+                    std::cout << "Sending data thread was joined" << std::endl;
+                }
+            }
+        }
+        std::cout << "Programm was closed correctly, all threads closed" << std::endl;
+
     }
 }

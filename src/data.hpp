@@ -13,6 +13,7 @@
 #include <cmath>
 #include <unordered_set>
 #include <mutex>
+#include <csignal>
 #include "crow.h"
 
 // Declaration
@@ -30,10 +31,16 @@ std::atomic<bool> running{true};
 bool verbose{false};
 std::deque<sample_T> dataDeque;
 std::mutex handleMutex;
-std::mutex jsonMutex; 
-nlohmann::json HeaderJSON; 
-std::deque<nlohmann::json> packageDeque; 
-std::atomic<bool> websocketActive{false}; 
+std::mutex jsonMutex;
+nlohmann::json HeaderJSON;
+std::deque<nlohmann::json> packageDeque;
+std::thread dequeThread;
+std::atomic<bool> websocketActive{false};
+std::atomic<bool> dataThreadActive{false};
+std::atomic<bool> websocketConnectionActive{false};
+crow::SimpleApp crowApp;
+std::thread websocket;
+
 
 
 void waitForExit();
@@ -45,8 +52,8 @@ void selectDevices();
 void printOrWriteData(std::string &, std::vector<std::string> &, bool &, bool & );
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
-double round_to(double , int);
-void processDeque(crow::websocket::connection&); 
+double round_to(double, int);
+void processDeque(crow::websocket::connection&);
 
 
 
@@ -95,31 +102,15 @@ private:
             std::lock_guard<std::mutex> lock(handleMutex);
             handle.push_back(sample);
             counter++;
-
-
-            if (verbose) {
-                std::cout << "Sample " << counter << " geschrieben." << std::endl;
-            }
         }
     }
 
 public:
     Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter)
         : handle(handle) {
-        if(verbose) {
-            std::cout << "Transformation wird gestartet" << std::endl;
-        }
-
         transformData(captureData, handle, UUID, counter);
-
-        if(verbose) {
-            std::cout << "Daten erfolgreich in Deque" << std::endl;
-        }
     }
     ~Transformater() {
-        if(verbose) {
-            std::cout << "Transformater deleted" << std::endl;
-        }
     }
 };
 
@@ -129,10 +120,10 @@ private:
     std::string filePath;
     std::ofstream outFile;
     std::deque<sample_T>& handle;
-    std::deque<nlohmann::json>& jsonHandle; 
+    std::deque<nlohmann::json>& jsonHandle;
     std::thread writerThread;
     std::vector<std::string> UUID;
-    bool WS; 
+    bool WS;
 
     nlohmann::json createJsonObject(const std::vector<std::string>& UUIDs) {
         nlohmann::json jsonObject;
@@ -245,45 +236,45 @@ private:
         }
     }
 
-    void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex){
-        constexpr int batchSize = 10; 
-        nlohmann::json currentBatch; 
-        currentBatch["data"] = nlohmann::json::array(); 
+    void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex) {
+        constexpr int batchSize = 10;
+        nlohmann::json currentBatch;
+        currentBatch["data"] = nlohmann::json::array();
 
-        int batchCounter = 0; 
+        int batchCounter = 0;
 
-        while(running){
+        while(running) {
             if (counter > 0) {
-                sample_T sample; 
+                sample_T sample;
 
-                std::lock_guard<std::mutex> lock(handleMutex); 
-                sample = handle.front(); 
-                handle.pop_front(); 
+                std::lock_guard<std::mutex> lock(handleMutex);
+                sample = handle.front();
+                handle.pop_front();
 
-                // add sample to Json object 
-                nlohmann::json sampleObject; 
-                sampleObject["timestamp"] = std::get<0>(sample); 
-                sampleObject["value"] = std::get<1>(sample); 
+                // add sample to Json object
+                nlohmann::json sampleObject;
+                sampleObject["timestamp"] = std::get<0>(sample);
+                sampleObject["value"] = std::get<1>(sample);
 
-                const auto& optionalValues = std::get<2>(sample); 
-                if(optionalValues){
-                    for(const auto& value : optionalValues.value()){
-                        sampleObject["value"].push_back(value); 
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for(const auto& value : optionalValues.value()) {
+                        sampleObject["value"].push_back(value);
                     }
                 }
 
-                // push in JSON deque: 
+                // push in JSON deque:
 
-                currentBatch["data"].push_back(sampleObject); 
-                batchCounter ++; 
-                counter --; 
+                currentBatch["data"].push_back(sampleObject);
+                batchCounter ++;
+                counter --;
 
-                if(batchCounter >= batchSize){
-                    std::lock_guard<std::mutex> lock(jsonMutex); 
-                    jsonHandle.push_back(currentBatch); 
+                if(batchCounter >= batchSize) {
+                    std::lock_guard<std::mutex> lock(jsonMutex);
+                    jsonHandle.push_back(currentBatch);
 
-                    currentBatch["data"] = nlohmann::json::array(); 
-                    batchCounter = 0; 
+                    currentBatch["data"] = nlohmann::json::array();
+                    batchCounter = 0;
                 }
             }
         }
@@ -294,8 +285,8 @@ private:
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
         }
-        if(WS){
-            write_JsonObject(counter, jsonMutex); 
+        if(WS) {
+            write_JsonObject(counter, jsonMutex);
         }
         else {
             // Write into a file
@@ -320,12 +311,12 @@ private:
 
 public:
     Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter, bool &WS, std::deque<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
-        :handle(handle), format(format), UUID(UUID), filePath(filePath), WS(WS), jsonHandle(jsonHandle){
+        :handle(handle), format(format), UUID(UUID), filePath(filePath), WS(WS), jsonHandle(jsonHandle) {
         std::cout << std::fixed << std::setprecision(3);
-        if(WS){
-            HeaderJSON = createJsonObject(UUID); 
+        if(WS) {
+            HeaderJSON = createJsonObject(UUID);
         }
-        else{
+        else {
             if(!filePath.empty()) {
                 outFile.open(filePath, std::ios::app);
                 if (!outFile) {
@@ -391,11 +382,11 @@ public:
 
 };
 
-void waitForExit() { // wait until the user closes the programm by pressing ENTER
-    std::cout << "OmnAIView is starting. Press enter to stop the programm." << std::endl;
-    std::cin.sync();
-    std::cin.get();
-    running = false;
+void customSignalHandler(int signal) {
+    if(signal == SIGINT) {
+        std::cout << "\ngot SIGINT. Stopping the programm..." << std::endl;
+        running = false;
+    }
 }
 
 void parseDeviceMetaData(Omniscope::MetaData metaData,
@@ -552,60 +543,64 @@ double round_to(double value, int decimals) {
     return std::round(value * factor) / factor;
 }
 
-void WSTest(){
-    crow::SimpleApp app;
-
+void WSTest() {
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
     std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
-    std::thread dequeThread; 
 
+    websocketActive = true;
 
-    CROW_WEBSOCKET_ROUTE(app, "/ws")
-      .onopen([&](crow::websocket::connection& conn) {
-          websocketActive = true; 
-          CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
-          std::lock_guard<std::mutex> _(mtx);
-          users.insert(&conn);
-          conn.send_text("Hello, connection established");      
-      })
-        .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
-            websocketActive = false;
-            while(!dequeThread.joinable()){
-                std::cout << "thread not joinable" << std::endl; 
+    CROW_WEBSOCKET_ROUTE(crowApp, "/ws")
+    .onopen([&](crow::websocket::connection& conn) {
+        websocketConnectionActive = true;
+        CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
+        std::lock_guard<std::mutex> _(mtx);
+        users.insert(&conn);
+        conn.send_text("Hello, connection established");
+    })
+    .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
+        websocketConnectionActive = false;
+        CROW_LOG_INFO << "websocket connection closed: " << reason;
+        if(dataThreadActive) {
+            while(!dequeThread.joinable()) {
             }
-            dequeThread.join(); 
-           CROW_LOG_INFO << "websocket connection closed: " << reason;
+            dequeThread.join();
+            dataThreadActive = false;
+        }
 
-          std::lock_guard<std::mutex> _(mtx);
-          users.erase(&conn);
-      })
-     .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
+        std::lock_guard<std::mutex> _(mtx);
+        users.erase(&conn);
+    })
+    .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
         CROW_LOG_INFO << "Received message: " << data;
         std::lock_guard<std::mutex> _(mtx);
-            if(!HeaderJSON.empty()){
-                conn.send_text(HeaderJSON.dump()); 
-                HeaderJSON.clear(); 
-            }            
+        if(!HeaderJSON.empty()) {
+            conn.send_text(HeaderJSON.dump());
+            HeaderJSON.clear();
+        }
 
-            // Überprüfe den Inhalt der Nachricht
-            if (data == "start") {
-                conn.send_text("pong"); // test pong 
+        // Überprüfe den Inhalt der Nachricht
+        if (data == "start") {
+            conn.send_text("pong"); // test pong
 
-                // deque processing in extra thread 
-                dequeThread = std::thread(processDeque, std::ref(conn));
-                if(verbose){
+            // deque processing in extra thread
+            dequeThread = std::thread(processDeque, std::ref(conn));
+            dataThreadActive = true;
+
+            if(verbose) {
                 conn.send_text("Thread was started");
-                }
             }
+        }
     });
 
+    crowApp.signal_clear();
+    std::signal(SIGINT, customSignalHandler);
 
-    app.port(8080).multithreaded().run();
+    crowApp.port(8080).multithreaded().run();
 }
 
 void processDeque(crow::websocket::connection& conn) {
-    while (websocketActive) {
+    while (running && websocketConnectionActive) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Polling-Intervall
 
         std::lock_guard<std::mutex> lock(jsonMutex);
