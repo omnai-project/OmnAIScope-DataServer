@@ -244,38 +244,40 @@ private:
         int batchCounter = 0;
 
         while(running) {
-            if (counter > 0) {
-                sample_T sample;
+            if(websocketConnectionActive) {
+                if (counter > 0) {
+                    sample_T sample;
 
-                std::lock_guard<std::mutex> lock(handleMutex);
-                sample = handle.front();
-                handle.pop_front();
+                    std::lock_guard<std::mutex> lock(handleMutex);
+                    sample = handle.front();
+                    handle.pop_front();
 
-                // add sample to Json object
-                nlohmann::json sampleObject;
-                sampleObject["timestamp"] = std::get<0>(sample);
-                sampleObject["value"] = nlohmann::json::array();
-                sampleObject["value"].push_back(std::get<1>(sample));
+                    // add sample to Json object
+                    nlohmann::json sampleObject;
+                    sampleObject["timestamp"] = std::get<0>(sample);
+                    sampleObject["value"] = nlohmann::json::array();
+                    sampleObject["value"].push_back(std::get<1>(sample));
 
-                const auto& optionalValues = std::get<2>(sample);
-                if(optionalValues) {
-                    for (size_t i = 0; i < optionalValues->size(); ++i) {
-                        sampleObject["value"].push_back((*optionalValues)[i]);
+                    const auto& optionalValues = std::get<2>(sample);
+                    if(optionalValues) {
+                        for (size_t i = 0; i < optionalValues->size(); ++i) {
+                            sampleObject["value"].push_back((*optionalValues)[i]);
+                        }
                     }
-                }
 
-                // push in JSON deque:
+                    // push in JSON deque:
 
-                currentBatch["data"].push_back(sampleObject);
-                batchCounter ++;
-                counter --;
+                    currentBatch["data"].push_back(sampleObject);
+                    batchCounter ++;
+                    counter --;
 
-                if(batchCounter >= batchSize) {
-                    std::lock_guard<std::mutex> lock(jsonMutex);
-                    jsonHandle.push_back(currentBatch);
+                    if(batchCounter >= batchSize) {
+                        std::lock_guard<std::mutex> lock(jsonMutex);
+                        jsonHandle.push_back(currentBatch);
 
-                    currentBatch["data"] = nlohmann::json::array();
-                    batchCounter = 0;
+                        currentBatch["data"] = nlohmann::json::array();
+                        batchCounter = 0;
+                    }
                 }
             }
         }
