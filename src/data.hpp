@@ -30,18 +30,25 @@ std::atomic<bool> running{true};
 bool verbose{false};
 std::deque<sample_T> dataDeque;
 std::mutex handleMutex;
+std::mutex jsonMutex; 
+nlohmann::json HeaderJSON; 
+std::deque<nlohmann::json> packageDeque; 
+std::atomic<bool> websocketActive{false}; 
 
 
 void waitForExit();
 void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
-void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
+void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &, bool &);
 void selectDevices();
-void printOrWriteData(std::string &, std::vector<std::string> &, bool &);
+void printOrWriteData(std::string &, std::vector<std::string> &, bool &, bool & );
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
-double round_to(double value, int decimals);
+double round_to(double , int);
+void processDeque(crow::websocket::connection&); 
+
+
 
 // Initialization
 
@@ -122,8 +129,33 @@ private:
     std::string filePath;
     std::ofstream outFile;
     std::deque<sample_T>& handle;
+    std::deque<nlohmann::json>& jsonHandle; 
     std::thread writerThread;
     std::vector<std::string> UUID;
+    bool WS; 
+
+    nlohmann::json createJsonObject(const std::vector<std::string>& UUIDs) {
+        nlohmann::json jsonObject;
+
+        // Metadata-Objekt erstellen
+        nlohmann::json metadata;
+        nlohmann::json devices = nlohmann::json::array();
+
+        // Devices-Daten hinzufügen
+        for (const auto& uuid : UUIDs) {
+            nlohmann::json device;
+            device["UUID"] = uuid;
+            devices.push_back(device);
+        }
+
+        metadata["devices"] = devices;
+
+        // Metadaten in das Hauptobjekt einfügen
+        jsonObject["metadata"] = metadata;
+
+        return jsonObject;
+    }
+
 
     void write_csv(std::atomic<int> &counter) {
         while(running) {
@@ -213,24 +245,72 @@ private:
         }
     }
 
-    void write(std::atomic<int> &counter) {
+    void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex){
+        constexpr int batchSize = 10; 
+        nlohmann::json currentBatch; 
+        currentBatch["data"] = nlohmann::json::array(); 
+
+        int batchCounter = 0; 
+
+        while(running){
+            if (counter > 0) {
+                sample_T sample; 
+
+                std::lock_guard<std::mutex> lock(handleMutex); 
+                sample = handle.front(); 
+                handle.pop_front(); 
+
+                // add sample to Json object 
+                nlohmann::json sampleObject; 
+                sampleObject["timestamp"] = std::get<0>(sample); 
+                sampleObject["value"] = std::get<1>(sample); 
+
+                const auto& optionalValues = std::get<2>(sample); 
+                if(optionalValues){
+                    for(const auto& value : optionalValues.value()){
+                        sampleObject["value"].push_back(value); 
+                    }
+                }
+
+                // push in JSON deque: 
+
+                currentBatch["data"].push_back(sampleObject); 
+                batchCounter ++; 
+                counter --; 
+
+                if(batchCounter >= batchSize){
+                    std::lock_guard<std::mutex> lock(jsonMutex); 
+                    jsonHandle.push_back(currentBatch); 
+
+                    currentBatch["data"] = nlohmann::json::array(); 
+                    batchCounter = 0; 
+                }
+            }
+        }
+    }
+
+    void write(std::atomic<int> &counter, std::mutex& jsonMutex) {
 
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
         }
-
-        // Write into a file
-        if(!filePath.empty()) {
-            // choose format
-            if(format == "csv") {
-                write_csv(counter);
-            }
-            else if(format == "json") {
-                write_json(counter);
-            }
+        if(WS){
+            write_JsonObject(counter, jsonMutex); 
         }
         else {
-            write_console(counter);
+            // Write into a file
+            if(!filePath.empty()) {
+                // choose format
+                if(format == "csv") {
+                    write_csv(counter);
+                }
+                else if(format == "json") {
+                    write_json(counter);
+                }
+            }
+            else {
+                write_console(counter);
+            }
         }
 
         if(verbose) {
@@ -239,51 +319,55 @@ private:
     }
 
 public:
-    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter)
-        :handle(handle), format(format), UUID(UUID), filePath(filePath) {
+    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter, bool &WS, std::deque<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
+        :handle(handle), format(format), UUID(UUID), filePath(filePath), WS(WS), jsonHandle(jsonHandle){
         std::cout << std::fixed << std::setprecision(3);
-
-        if(!filePath.empty()) {
-            outFile.open(filePath, std::ios::app);
-            if (!outFile) {
-                throw std::ios_base::failure("Error opening file: " + filePath);
-            }// Write header
-            else if(format == "csv") {
-                outFile << "Timestamp [s]" << " , ";
-                for(size_t i = 0; i < UUID.size(); ++i) {
-                    outFile << UUID[i];
-                    if(i < UUID.size()-1) {
-                        outFile << " , ";
-                    }
-                }
-                outFile << "\n";
-            }
-            else if(format == "json") {
-                outFile << "{\"metadata\": {";
-                outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
-                for (size_t i = 0; i < UUID.size(); ++i) {
-                    outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
-                    if (i < UUID.size() - 1) {
-                        outFile << ",";
-                    }
-                }
-                outFile << "}" << "]";  // optional metadata: measurement, host
-                outFile << "},";
-            }
+        if(WS){
+            HeaderJSON = createJsonObject(UUID); 
         }
-        else {
-            std::cout << "Timestamp [s]" << " , ";
-            for (size_t i = 0; i < UUID.size(); ++i) {
-                std::cout << UUID[i] << " [V]";
-                if (i < UUID.size() - 1) {
-                    std::cout << " , ";
+        else{
+            if(!filePath.empty()) {
+                outFile.open(filePath, std::ios::app);
+                if (!outFile) {
+                    throw std::ios_base::failure("Error opening file: " + filePath);
+                }// Write header
+                else if(format == "csv") {
+                    outFile << "Timestamp [s]" << " , ";
+                    for(size_t i = 0; i < UUID.size(); ++i) {
+                        outFile << UUID[i];
+                        if(i < UUID.size()-1) {
+                            outFile << " , ";
+                        }
+                    }
+                    outFile << "\n";
+                }
+                else if(format == "json") {
+                    outFile << "{\"metadata\": {";
+                    outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
+                    for (size_t i = 0; i < UUID.size(); ++i) {
+                        outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
+                        if (i < UUID.size() - 1) {
+                            outFile << ",";
+                        }
+                    }
+                    outFile << "}" << "]";  // optional metadata: measurement, host
+                    outFile << "},";
                 }
             }
-            std::cout << "\n";
+            else {
+                std::cout << "Timestamp [s]" << " , ";
+                for (size_t i = 0; i < UUID.size(); ++i) {
+                    std::cout << UUID[i] << " [V]";
+                    if (i < UUID.size() - 1) {
+                        std::cout << " , ";
+                    }
+                }
+                std::cout << "\n";
+            }
         }
 
         // Starte den Thread erst nach dem Öffnen der Datei
-        writerThread = std::thread(&Writer::write, this, std::ref(counter));
+        writerThread = std::thread(&Writer::write, this, std::ref(counter), std::ref(jsonMutex));
     }
 
     ~Writer() {
@@ -412,7 +496,7 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson, bool &WS) {
     static bool startWriter = true;
     std::string format;
     if(isJson) {
@@ -430,19 +514,19 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
         delete transformi;
 
         if(startWriter) {
-            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter); // write data into a file or the console
+            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter, WS, packageDeque, jsonMutex); // write data into a file or the console
             startWriter = false;
         }
     }
 }
 
-void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson) {
+void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson, bool &WS) {
     while(running) {
         searchDevices();   // Init Scopes
 
         selectDevices(UUID);  // select only chosen devices
 
-        printOrWriteData(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
+        printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
     }
 }
 
@@ -474,54 +558,67 @@ void WSTest(){
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
     std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
-    static bool open = false; 
+    std::thread dequeThread; 
 
 
     CROW_WEBSOCKET_ROUTE(app, "/ws")
       .onopen([&](crow::websocket::connection& conn) {
-            open = true; 
+          websocketActive = true; 
           CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
           std::lock_guard<std::mutex> _(mtx);
           users.insert(&conn);
-
-          conn.send_text("Hello, connection established");
-          thread_control_flags[&conn] = true;
-
-          std::thread([&conn, &users, &mtx]() {
-            try{
-                while(open){
-                     std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
-                     std::lock_guard<std::mutex> _(mtx);        
-                     conn.send_text("Hello"); 
-                }
-          } catch (const std::exception& e) {
-                    CROW_LOG_ERROR << "Error in data generation thread: " << e.what();
-                }
-          }).detach(); 
+          conn.send_text("Hello, connection established");      
       })
         .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
-          open = false; 
-          CROW_LOG_INFO << "websocket connection closed: " << reason;
+            websocketActive = false;
+            while(!dequeThread.joinable()){
+                std::cout << "thread not joinable" << std::endl; 
+            }
+            dequeThread.join(); 
+           CROW_LOG_INFO << "websocket connection closed: " << reason;
 
-          if (thread_control_flags.find(&conn) != thread_control_flags.end()) { // stop data thread 
-                    thread_control_flags[&conn] = false;
-                    thread_control_flags.erase(&conn);
-                }
           std::lock_guard<std::mutex> _(mtx);
           users.erase(&conn);
       })
      .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
         CROW_LOG_INFO << "Received message: " << data;
         std::lock_guard<std::mutex> _(mtx);
+            if(!HeaderJSON.empty()){
+                conn.send_text(HeaderJSON.dump()); 
+                HeaderJSON.clear(); 
+            }            
 
-        // Broadcast the message to all connected clients
-        for (auto user : users) {
-            if (user != &conn) {
-                user->send_text(data);
+            // Überprüfe den Inhalt der Nachricht
+            if (data == "start") {
+                conn.send_text("pong"); // test pong 
+
+                // deque processing in extra thread 
+                dequeThread = std::thread(processDeque, std::ref(conn));
+                if(verbose){
+                conn.send_text("Thread was started");
+                }
             }
-        }
     });
 
 
     app.port(8080).multithreaded().run();
 }
+
+void processDeque(crow::websocket::connection& conn) {
+    while (websocketActive) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Polling-Intervall
+
+        std::lock_guard<std::mutex> lock(jsonMutex);
+        if (!packageDeque.empty()) {
+            // Hole das erste Element aus der deque
+            nlohmann::json firstElement = packageDeque.front();
+            packageDeque.pop_front();
+
+            // Sende das JSON über den WebSocket
+            conn.send_text(firstElement.dump());
+        }
+    }
+
+    std::cout << "Background thread stopped." << std::endl;
+}
+

@@ -20,8 +20,16 @@ The CLI-Tool includes the following functionalities:
 -d, --device, --dev Initiates a measurement session for specified devices by their UUIDs. Multiple devices can be specified, and their data will be displayed directly in the console. 
 -o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.
 -j, --json Changes the output file format to JSON. 
+-w, --websocket Opens a Websocket. To send data UUIDs must be given. 
 -v, --verbose Prints out additional information about the software's process.
 --version Prints out the current SW version 
+
+How to use the Websocket: 
+
+.\MiniOmni -d UUID -w 
+
+-> This opens a websocket that sends data from the device with the set UUID in JSON format.
+In a later version choosen the UUIDs, the format and the sample rate from the Client side should be possible.
 
 # Setting Up and Building the MiniOmni Project
 

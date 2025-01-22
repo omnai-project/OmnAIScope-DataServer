@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
     app.add_flag("-j,--json", isJson, "Add if you want the file to be in a JSON format");
 
     bool WS = false; 
-    app.add_flag("-w,--websocket", WS, "Start WS"); 
+    app.add_flag("-w,--websocket", WS, "Starts the websocket. To send data a UUID has to be given"); 
     
     bool printVersion = false; 
     app.add_flag("--version", printVersion, "Prints the current version. Version is set via a git tag."); 
@@ -50,14 +50,19 @@ int main(int argc, char **argv) {
     }
 
     if(WS){
-        WSTest(); // auf extra Thread
-        // startMeasurementandWrite() --> ohne ausgabe durch Writer --> Writer transformiert in JSON object --> muss in extra Thread laufen 
+        std::thread exitThread(waitForExit);
+        std::thread webSocket(WSTest); 
+        if(!startUUID.empty()){
+        startMeasurementAndWrite(startUUID, filePath, isJson, WS);
+        }
+        webSocket.join();
+        exitThread.join(); 
     }
 
     while(running) {
         if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
             std::thread exitThread(waitForExit);
-            startMeasurementAndWrite(startUUID, filePath, isJson);
+            startMeasurementAndWrite(startUUID, filePath, isJson, WS);
             exitThread.join(); // exit the programm with enter
         }
     }

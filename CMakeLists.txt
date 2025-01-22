@@ -38,6 +38,7 @@ set(CMAKE_TOOLCHAIN_FILE "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake" 
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti")
 
+
 project("MiniOmni" VERSION 0.0.1)
 
 if(MSVC)
