@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
             }
         }
         if(sendDataThreadActive) {
-            sendDataThreadActive = false;
+            sendDataThreadActive = false; 
             while(!sendDataThread.joinable()) {
             }
             sendDataThread.join();

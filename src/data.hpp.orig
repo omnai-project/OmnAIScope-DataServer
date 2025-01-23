@@ -35,13 +35,13 @@ std::mutex jsonMutex;
 nlohmann::json HeaderJSON;
 std::deque<nlohmann::json> packageDeque;
 std::thread dequeThread;
-std::thread sendDataThread;
+std::thread sendDataThread; 
 std::atomic<bool> websocketActive{false};
 std::atomic<bool> dataThreadActive{false};
 std::atomic<bool> websocketConnectionActive{false};
 crow::SimpleApp crowApp;
 std::thread websocket;
-bool sendDataThreadActive = false;
+bool sendDataThreadActive = false; 
 
 
 
@@ -58,7 +58,7 @@ double round_to(double, int);
 void processDeque(crow::websocket::connection&);
 std::vector<std::string> splitString(const std::string&);
 void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
-void resetDevices();
+void resetDevices(); 
 
 
 
@@ -446,16 +446,16 @@ void initDevices() { // Initalize the connected devices
     }
 }
 
-void resetDevices() {
-    if(sampler.has_value()) {
-        for (auto &device : sampler->sampleDevices) {
-            device.first->send(Omniscope::Stop{});
+void resetDevices(){
+        if(sampler.has_value()) {
+            for (auto &device : sampler->sampleDevices) {
+                device.first->send(Omniscope::Stop{});
+            }
         }
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    sampler.reset();
-    devices.clear();
-    deviceManager.clearDevices();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
+        sampler.reset(); 
+        devices.clear(); 
+        deviceManager.clearDevices(); 
 }
 
 void printDevices() {
@@ -542,10 +542,10 @@ void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &fileP
 
         printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
     }
-    resetDevices();
+    resetDevices(); 
 }
 
-void sendDataStreamToWS(std::vector<std::string> &UUID, std::string &filePath, bool &isJson, bool &WS) {
+void sendDataStreamToWS(std::vector<std::string> &UUID, std::string &filePath, bool &isJson, bool &WS){
     while(sendDataThreadActive) {
         searchDevices();   // Init Scopes
 
@@ -581,8 +581,8 @@ void WSTest() {
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
     std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
-    bool json_temp = false;
-    bool ws_temp = true;
+    bool json_temp = false; 
+    bool ws_temp = true; 
     std::string file_temp = " ";
     std::vector<std::string> startUUIDs;
 
@@ -606,7 +606,7 @@ void WSTest() {
             dataThreadActive = false;
         }
         if(sendDataThreadActive) {
-            sendDataThreadActive = false;
+            sendDataThreadActive = false; 
             while(!sendDataThread.joinable()) {
             }
             sendDataThread.join();
@@ -614,15 +614,15 @@ void WSTest() {
         }
 
         resetDevices();
-
-        if(!dataDeque.empty()) {
+         
+        if(!dataDeque.empty()){
             std::lock_guard<std::mutex> lock(handleMutex);
-            dataDeque.clear();
-        }
-        if(!packageDeque.empty()) {
+            dataDeque.clear(); 
+            }
+            if(!packageDeque.empty()){
             std::lock_guard<std::mutex> lock(jsonMutex);
-            packageDeque.clear();
-        }
+            packageDeque.clear(); 
+            }
 
         std::lock_guard<std::mutex> _(mtx);
         users.erase(&conn);
@@ -634,39 +634,39 @@ void WSTest() {
             conn.send_text(HeaderJSON.dump());
             HeaderJSON.clear();
         }*/
-        if(!data.empty()) {
-            char firstChar = data[0];
-            if(firstChar == 'E') {
-                if(!dataDeque.empty()) {
-                    std::lock_guard<std::mutex> lock(handleMutex);
-                    dataDeque.clear();
-                }
-                if(!packageDeque.empty()) {
-                    std::lock_guard<std::mutex> lock(jsonMutex);
-                    packageDeque.clear();
-                }
-                startUUIDs = splitString(data);
-
-                // deque processing in extra thread
-                dequeThread = std::thread(processDeque, std::ref(conn));
-                dataThreadActive = true;
-
-                if(verbose) {
-                    conn.send_text("Sending data was started via the client.");
-                }
-
-                sendDataThread = std::thread(sendDataStreamToWS, std::ref(startUUIDs), std::ref(file_temp), std::ref(json_temp), std::ref(ws_temp));
-                sendDataThreadActive = true;
+       if(!data.empty()){
+        char firstChar = data[0]; 
+        if(firstChar == 'E'){
+            if(!dataDeque.empty()){
+            std::lock_guard<std::mutex> lock(handleMutex);
+            dataDeque.clear(); 
             }
-            else if(data == "start") {
-                dequeThread = std::thread(processDeque, std::ref(conn));
-                dataThreadActive = true;
+            if(!packageDeque.empty()){
+            std::lock_guard<std::mutex> lock(jsonMutex);
+            packageDeque.clear(); 
+            }
+            startUUIDs = splitString(data); 
 
-                if(verbose) {
-                    conn.send_text("Sending data was started with set UUIDs via the CLI Tool");
-                }
+            // deque processing in extra thread
+            dequeThread = std::thread(processDeque, std::ref(conn));
+            dataThreadActive = true;
+
+            if(verbose) {
+                conn.send_text("Sending data was started via the client.");
+            }
+
+            sendDataThread = std::thread(sendDataStreamToWS, std::ref(startUUIDs), std::ref(file_temp), std::ref(json_temp), std::ref(ws_temp));
+            sendDataThreadActive = true; 
+        }
+        else if(data == "start"){
+            dequeThread = std::thread(processDeque, std::ref(conn));
+            dataThreadActive = true;
+
+            if(verbose) {
+                conn.send_text("Sending data was started with set UUIDs via the CLI Tool");
             }
         }
+       }
     });
 
     crowApp.signal_clear();
