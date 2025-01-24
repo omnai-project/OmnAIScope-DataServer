@@ -59,7 +59,6 @@ int main(int argc, char **argv) {
         }
         // else client needs to send UUID to WS
     }
-
     while(running) {
         if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
             startMeasurementAndWrite(startUUID, filePath, isJson, WS);
@@ -67,40 +66,6 @@ int main(int argc, char **argv) {
     }
 
     if(!running) {
-        crowApp.stop();
-        if(verbose) {
-            std::cout << "Websocket closed" << std::endl;
-        }
-        if(websocketActive) {
-            while(!websocket.joinable()) {
-
-            }
-            if(websocket.joinable()) {
-                websocket.join();
-                if(verbose) {
-                    std::cout << "Websocket thread was joined" << std::endl;
-                }
-            }
-        }
-        websocketActive = false;
-        if(dataThreadActive) {
-            while(!dequeThread.joinable()) {}
-            if(dequeThread.joinable()) {
-                dequeThread.join();
-                dataThreadActive = false;
-                if(verbose) {
-                    std::cout << "Sending data thread was joined" << std::endl;
-                }
-            }
-        }
-        if(sendDataThreadActive) {
-            sendDataThreadActive = false;
-            while(!sendDataThread.joinable()) {
-            }
-            sendDataThread.join();
-            sendDataThreadActive = false;
-        }
-        std::cout << "Programm was closed correctly, all threads closed" << std::endl;
-
+        ExitProgramm();
     }
 }
