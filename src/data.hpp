@@ -43,6 +43,7 @@ crow::SimpleApp crowApp;
 std::thread websocket;
 bool sendDataThreadActive = false;
 static std::atomic<int> counter(0);
+static int samplingRate(0);
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -64,12 +65,15 @@ void stopAndJoinWSConnectionThreads();
 void stopAndJoinWSThread();
 void ExitProgramm();
 void CloseWSConnection();
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
+nlohmann::json getDevicesAsJson();
 
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class Transformater{ // Transforming data from captureData into a deque<sample_T> format
 private:
     std::deque<sample_T>& handle;
+    int samplingRate;
 
     void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string>& UUID, std::atomic<int>& counter) {
         // transform Data into the sample format
@@ -77,6 +81,11 @@ private:
         ts_T timeStamp = 0;
         val_T firstX = 0;
         std::optional<std::vector<val_T>> otherX;
+        int sampleQuotient = 60;
+
+        if(samplingRate != 0) {
+            sampleQuotient = 100000/samplingRate;
+        }
 
         if (captureData.empty()) {
             return;
@@ -87,6 +96,9 @@ private:
         size_t vectorSize = firstDeviceData.size();
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
+
+            currentPosition = currentPosition + sampleQuotient;
+
             if (!running) {
                 return;
             }
@@ -114,8 +126,8 @@ private:
     }
 
 public:
-    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter)
-        : handle(handle) {
+    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter, int &samplingRate)
+        : handle(handle), samplingRate(samplingRate) {
         transformData(captureData, handle, UUID, counter);
     }
     ~Transformater() {
@@ -583,6 +595,39 @@ void printDevices() {
     }
 }
 
+nlohmann::json getDevicesAsJson() {
+    nlohmann::json responseJson;
+
+    if (devices.empty()) {
+        // Kein Gerät verbunden
+        responseJson["error"] = "No devices are connected. Please connect a device and start again.";
+    } else {
+        // Arrays für UUIDs und Farben erstellen
+        std::vector<std::string> uuids;
+        std::vector<std::string> colors;
+
+        for (const auto& device : devices) {
+            // Gerätedaten extrahieren
+            std::string deviceId = device->getId()->serial;
+            std::string color = colorToString(uuidToColor(deviceId));
+
+            // UUIDs und Farben sammeln
+            uuids.push_back(deviceId);
+            colors.push_back(color);
+        }
+
+        // JSON-Daten zusammenstellen
+        responseJson["COLOR"] = colors;
+        responseJson["UUID"] = uuids;
+
+        // Geräte und Manager zurücksetzen
+        devices.clear();
+        deviceManager.clearDevices();
+    }
+
+    return responseJson;
+}
+
 void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson, bool &WS) {
     static bool startWriter = true;
     std::string format;
@@ -595,7 +640,7 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
         captureData.clear();
         sampler->copyOut(captureData);
 
-        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter); // transform data into sample format
+        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
         delete transformi;
 
         if(startWriter) {
@@ -644,6 +689,11 @@ std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
     return fmt::format("\033[38;2;{};{};{}m", r, g, b); // ANSI-Farbcode generieren
 }
 
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
+    auto [r, g, b] = rgb; // Tupel entpacken
+    return fmt::format("{};{};{}", r, g, b); // ANSI-Farbcode generieren
+}
+
 double round_to(double value, int decimals) {
     double factor = std::pow(10.0, decimals);
     return std::round(value * factor) / factor;
@@ -660,6 +710,23 @@ void WSTest() {
 
     WEBSOCKET_ACTIVE = true;
 
+    // API
+    CROW_ROUTE(crowApp, "/UUID") // HTTP GET auf "/hello"
+    ([]() {
+        searchDevices();
+        nlohmann::json devicesJson = getDevicesAsJson();
+        return crow::response(devicesJson.dump());
+    });
+
+    CROW_ROUTE(crowApp, "/help") // HTTP GET auf "/hello"
+    ([]() {
+        return std::string("Starting the websocket under ip/ws. Set one or multiply UUIDs by writing them after the hello message. \n")
+               + "The last input can be a sampling rate. The default sampling Rate is 60 Sa/s.\n"
+               + "The sampling Rate cant be higher than 100.000 Sa/s. Press enter to start the measurement.";
+    });
+
+
+    // Websocket
     CROW_WEBSOCKET_ROUTE(crowApp, "/ws")
     .onopen([&](crow::websocket::connection& conn) {
         websocketConnectionActive = true;
@@ -719,11 +786,21 @@ std::vector<std::string> splitString(const std::string& data) {
 
     // Einzelne Wörter aus dem Stream extrahieren
     while (iss >> word) {
-        result.push_back(word);
+        if (word[0] == 'E') {
+            result.push_back(word);
+        } else {
+            try {
+                samplingRate = std::stoi(word);
+            } catch (const std::invalid_argument& e) {
+                std::cerr << "Not a valid Samplingrate: " << word << std::endl;
+            } catch (const std::out_of_range& e) {
+                std::cerr << "Number out of range: " << word << std::endl;
+            }
+        }
     }
-
     return result;
 }
+
 
 void processDeque(crow::websocket::connection& conn) {
     while (running && websocketConnectionActive) {
