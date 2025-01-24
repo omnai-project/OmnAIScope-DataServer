@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
     }
 
     if(printVersion) {
-        std::cout << "Version " << PROJECT_VERSION << std::endl;
+       // std::cout << "Version " << PROJECT_VERSION << std::endl;
         running = false;
     }
 
@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
             }
         }
         if(sendDataThreadActive) {
-            sendDataThreadActive = false; 
+            sendDataThreadActive = false;
             while(!sendDataThread.joinable()) {
             }
             sendDataThread.join();
