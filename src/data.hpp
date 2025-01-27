@@ -86,6 +86,9 @@ private:
         if(samplingRate != 0) {
             sampleQuotient = 100000/samplingRate;
         }
+        if(verbose) {
+            std::cout << "sampling quo: " << sampleQuotient << std::endl;
+        }
 
         if (captureData.empty()) {
             return;
@@ -96,8 +99,12 @@ private:
         size_t vectorSize = firstDeviceData.size();
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
-
-            currentPosition = currentPosition + sampleQuotient;
+            std::cout << vectorSize << std::endl;
+            if((currentPosition + sampleQuotient) < vectorSize) {
+                std::cout << "Position erhöht" << std::endl;
+                currentPosition = currentPosition + sampleQuotient;
+            }
+            else return;
 
             if (!running) {
                 return;
@@ -440,7 +447,7 @@ void resetDevices() {
             device.first->send(Omniscope::Stop{});
         }
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     sampler.reset();
     devices.clear();
     deviceManager.clearDevices();
@@ -639,6 +646,11 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // to make sure there are enough samples in a vector to use the correct sample rate
+        const auto& [firstId, firstDeviceData] = *captureData.begin();
+        size_t vectorSize = firstDeviceData.size();
 
         Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
         delete transformi;
@@ -804,7 +816,7 @@ std::vector<std::string> splitString(const std::string& data) {
 
 void processDeque(crow::websocket::connection& conn) {
     while (running && websocketConnectionActive) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Polling-Intervall
+        //std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Polling-Intervall
 
         std::lock_guard<std::mutex> lock(jsonMutex);
         if (!packageDeque.empty()) {
