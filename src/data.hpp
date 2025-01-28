@@ -99,9 +99,7 @@ private:
         size_t vectorSize = firstDeviceData.size();
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
-            std::cout << vectorSize << std::endl;
             if((currentPosition + sampleQuotient) < vectorSize) {
-                std::cout << "Position erhöht" << std::endl;
                 currentPosition = currentPosition + sampleQuotient;
             }
             else return;
