@@ -45,6 +45,7 @@ std::thread websocket;
 bool sendDataThreadActive = false;
 static std::atomic<int> counter(0);
 static int samplingRate(0);
+static int Datenanzahl(0);
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -306,6 +307,7 @@ private:
                         currentBatch["data"] = nlohmann::json::array();
                         batchCounter = 0;
                     }
+                    Datenanzahl++;
                 }
             }
         }
@@ -425,6 +427,7 @@ void customSignalHandler(int signal) {
 }
 
 void ExitProgramm() {
+    std::cout << "Anzahl gesendeter Daten:" << Datenanzahl << std::endl;
     if(WEBSOCKET_ACTIVE) {
         crowApp.stop();
     }
