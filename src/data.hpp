@@ -46,6 +46,7 @@ bool sendDataThreadActive = false;
 static std::atomic<int> counter(0);
 static int samplingRate(0);
 static int Datenanzahl(0);
+std::vector<std::string> startUUIDs;
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -611,23 +612,30 @@ nlohmann::json getDevicesAsJson() {
         // Kein Gerät verbunden
         responseJson["error"] = "No devices are connected. Please connect a device and start again.";
     } else {
-        // Arrays für UUIDs und Farben erstellen
-        std::vector<std::string> uuids;
-        std::vector<std::string> colors;
+        // JSON-Arrays für Geräte und Farben erstellen
+        nlohmann::json devicesArray = nlohmann::json::array();
+        nlohmann::json colorsArray = nlohmann::json::array();
 
         for (const auto& device : devices) {
             // Gerätedaten extrahieren
             std::string deviceId = device->getId()->serial;
-            std::string color = colorToString(uuidToColor(deviceId));
+            auto color = uuidToColor(deviceId);
 
-            // UUIDs und Farben sammeln
-            uuids.push_back(deviceId);
-            colors.push_back(color);
+            // Gerät zur JSON-Liste hinzufügen
+            devicesArray.push_back({{"UUID", deviceId}});
+
+            // Farbe zur JSON-Liste hinzufügen
+            nlohmann::json colorJson;
+            colorJson["color"]["r"] = std::get<0>(color);
+            colorJson["color"]["g"] = std::get<1>(color);
+            colorJson["color"]["b"] = std::get<2>(color);
+
+            colorsArray.push_back(colorJson);
         }
 
         // JSON-Daten zusammenstellen
-        responseJson["COLOR"] = colors;
-        responseJson["UUID"] = uuids;
+        responseJson["devices"] = devicesArray;
+        responseJson["colors"] = colorsArray;
 
         // Geräte und Manager zurücksetzen
         devices.clear();
@@ -839,8 +847,12 @@ void processDeque(crow::websocket::connection& conn) {
             nlohmann::json firstElement = packageDeque.front();
             packageDeque.pop_front();
 
+            nlohmann::ordered_json message;
+            message.update(firstElement);
+            message["devices"] = startUUIDs;  // UUIDs zuerst setzen
+
             // Sende das JSON über den WebSocket
-            conn.send_text(firstElement.dump());
+            conn.send_text(message.dump());
         }
     }
     if(verbose) {
