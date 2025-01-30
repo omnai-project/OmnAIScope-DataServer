@@ -15,6 +15,7 @@
 #include <mutex>
 #include <csignal>
 #include "crow.h"
+#include "crow/middlewares/cors.h"
 
 //GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -39,7 +40,7 @@ std::thread sendDataThread;
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
 std::atomic<bool> dataThreadActive{false};
 std::atomic<bool> websocketConnectionActive{false};
-crow::SimpleApp crowApp;
+crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
 bool sendDataThreadActive = false;
 static std::atomic<int> counter(0);
@@ -716,7 +717,16 @@ void WSTest() {
     bool json_temp = false;
     bool ws_temp = true;
     std::string file_temp = " ";
-    std::vector<std::string> startUUIDs;
+
+    auto& cors = crowApp.get_middleware<crow::CORSHandler>();
+
+    cors
+    .global()
+    .origin("*") // Erlaube Anfragen von allen Domains (Browser-freundlich)
+    .headers("Origin", "Content-Type", "Accept", "X-Custom-Header", "Authorization") // Alle relevanten Header
+    .methods("POST"_method, "GET"_method, "OPTIONS"_method) // Erlaube POST, GET und OPTIONS (für Preflight)
+    .max_age(600); // Cache Preflight-Antworten für 10 Minuten
+    // clang-format on
 
     WEBSOCKET_ACTIVE = true;
 
@@ -735,6 +745,10 @@ void WSTest() {
                + "The sampling Rate cant be higher than 100.000 Sa/s. Press enter to start the measurement.";
     });
 
+    // OPTIONS-Endpunkt, um Preflight-Anfragen zu behandeln
+    CROW_ROUTE(crowApp, "/cors").methods("OPTIONS"_method)([]() {
+        return crow::response(204); // Antwort ohne Inhalt
+    });
 
     // Websocket
     CROW_WEBSOCKET_ROUTE(crowApp, "/ws")
