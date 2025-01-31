@@ -5,6 +5,7 @@ The MiniOmni Project is a temporary project aimed at developing a Minimum Viable
 The MiniOmni Project currently offers the following features:
 
 - CLI Tool: Enables data retrieval from multiple OmnAIScopes via a command-line interface, with the ability to output data in various formats. (Details can be found in the section "CLI Tool Usage.")
+Via the CLI Tool a websocket can be started on Port 8080 of the used device. (Details can be found in the section "CLI Tool Usage.")
 
 
 # CLI-Tool Usage 
@@ -20,8 +21,66 @@ The CLI-Tool includes the following functionalities:
 -d, --device, --dev Initiates a measurement session for specified devices by their UUIDs. Multiple devices can be specified, and their data will be displayed directly in the console. 
 -o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.
 -j, --json Changes the output file format to JSON. 
+-w, --websocket Opens a Websocket, as well as a REST API. 
 -v, --verbose Prints out additional information about the software's process.
 --version Prints out the current SW version 
+
+### How to use the Websocket: 
+
+The websocket currently can be used in two ways via the CLI Tool or in a client-based setup. 
+
+1. Using the Websocket with the CLI Tool 
+
+Step 1: Start the Websocket 
+
+To start the Websocket and initialize the devices, use the following command: 
+```
+.\MiniOmni -d <UUID> -w 
+```
+The UUID is emplaced with the UUIDs of the connected devices. This will initalize the devices and directly start the measurement. 
+
+Step 2: Open a WS connection on the client side 
+
+To connect to the websocket use a client tool like wscat : 
+```
+wscat -c ws://<ip>:8080/ws
+```
+
+Step 3: Start data transmission: 
+To begin receiving data from the Websocket, send the following command from the client : 
+```
+start 
+```
+You will receive the data in a json format. 
+
+2. Using the Websocket in a Client-based Setup 
+
+1. Start the Websocket 
+
+Run the Websocket in the backend without specifying any UUIDS with the command : 
+```` 
+.\MiniOmni -w 
+``` 
+
+Step 2: Retrieve UUIDS via REST API 
+On the client side, request the available UUIDs by accessing the REST API endpoint:
+```
+http://<ip>:8080/UUID
+```
+
+Step 3: Connect to the WS 
+Establish a WS connection via
+```
+wscat -c ws://127.0.0.1:8080/ws
+```
+
+Step 4: Start the measurement
+To start the measurement the client has to send the UUIDs to the websocket via 
+```
+<UUID1> <UUID2> ... <optional:Sample Rate>
+```
+At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. 
+You will receive data in a json format from the chosen devices with the set sample rate. 
 
 # Setting Up and Building the MiniOmni Project
 
@@ -166,6 +225,8 @@ Make sure the following packages are installed:
 - `cmake`
 - `autoconf`
 - `libudev-dev`
+- `automake`
+- `autoconf-archive`
 
 ### Installing Required Packages (Debian-based Systems)
 

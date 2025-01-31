@@ -1,3 +1,5 @@
+//#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
+#include <boost/asio.hpp>
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -9,8 +11,13 @@
 #include <nlohmann/json.hpp>
 #include <deque>
 #include <cmath>
+#include <unordered_set>
+#include <mutex>
+#include <csignal>
+#include "crow.h"
+#include "crow/middlewares/cors.h"
 
-// Declaration
+//GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
 using val_T = double;
 using ts_T = double; // timestamp
@@ -25,24 +32,51 @@ std::atomic<bool> running{true};
 bool verbose{false};
 std::deque<sample_T> dataDeque;
 std::mutex handleMutex;
+std::mutex jsonMutex;
+nlohmann::json HeaderJSON;
+std::deque<nlohmann::json> packageDeque;
+std::thread dequeThread;
+std::thread sendDataThread;
+std::atomic<bool> WEBSOCKET_ACTIVE{false};
+std::atomic<bool> dataThreadActive{false};
+std::atomic<bool> websocketConnectionActive{false};
+crow::App<crow::CORSHandler> crowApp;
+std::thread websocket;
+bool sendDataThreadActive = false;
+static std::atomic<int> counter(0);
+static int samplingRate(0);
+static int Datenanzahl(0);
+std::vector<std::string> startUUIDs;
 
+//FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void waitForExit();
 void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
-void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &);
+void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &, bool &);
 void selectDevices();
-void printOrWriteData(std::string &, std::vector<std::string> &, bool &);
+void printOrWriteData(std::string &, std::vector<std::string> &, bool &, bool & );
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
-double round_to(double value, int decimals);
+double round_to(double, int);
+void processDeque(crow::websocket::connection&);
+std::vector<std::string> splitString(const std::string&);
+void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
+void resetDevices();
+void clearAllDeques();
+void stopAndJoinWSConnectionThreads();
+void stopAndJoinWSThread();
+void ExitProgramm();
+void CloseWSConnection();
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
+nlohmann::json getDevicesAsJson();
 
-// Initialization
+//CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class Transformater{
+class Transformater{ // Transforming data from captureData into a deque<sample_T> format
 private:
     std::deque<sample_T>& handle;
+    int samplingRate;
 
     void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string>& UUID, std::atomic<int>& counter) {
         // transform Data into the sample format
@@ -50,6 +84,14 @@ private:
         ts_T timeStamp = 0;
         val_T firstX = 0;
         std::optional<std::vector<val_T>> otherX;
+        int sampleQuotient = 60;
+
+        if(samplingRate != 0) {
+            sampleQuotient = 100000/samplingRate;
+        }
+        if(verbose) {
+            std::cout << "sampling quo: " << sampleQuotient << std::endl;
+        }
 
         if (captureData.empty()) {
             return;
@@ -60,6 +102,11 @@ private:
         size_t vectorSize = firstDeviceData.size();
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
+            if((currentPosition + sampleQuotient) < vectorSize) {
+                currentPosition = currentPosition + sampleQuotient;
+            }
+            else return;
+
             if (!running) {
                 return;
             }
@@ -83,42 +130,53 @@ private:
             std::lock_guard<std::mutex> lock(handleMutex);
             handle.push_back(sample);
             counter++;
-
-
-            if (verbose) {
-                std::cout << "Sample " << counter << " geschrieben." << std::endl;
-            }
         }
     }
 
 public:
-    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter)
-        : handle(handle) {
-        if(verbose) {
-            std::cout << "Transformation wird gestartet" << std::endl;
-        }
-
+    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter, int &samplingRate)
+        : handle(handle), samplingRate(samplingRate) {
         transformData(captureData, handle, UUID, counter);
-
-        if(verbose) {
-            std::cout << "Daten erfolgreich in Deque" << std::endl;
-        }
     }
     ~Transformater() {
-        if(verbose) {
-            std::cout << "Transformater deleted" << std::endl;
-        }
     }
 };
 
-class Writer{
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+class Writer{ // write data into various formats, including a json object for the Websocket
 private:
     std::string format;
     std::string filePath;
     std::ofstream outFile;
     std::deque<sample_T>& handle;
+    std::deque<nlohmann::json>& jsonHandle;
     std::thread writerThread;
     std::vector<std::string> UUID;
+    bool WS;
+
+    nlohmann::json createJsonObject(const std::vector<std::string>& UUIDs) {
+        nlohmann::json jsonObject;
+
+        // Metadata-Objekt erstellen
+        nlohmann::json metadata;
+        nlohmann::json devices = nlohmann::json::array();
+
+        // Devices-Daten hinzufügen
+        for (const auto& uuid : UUIDs) {
+            nlohmann::json device;
+            device["UUID"] = uuid;
+            devices.push_back(device);
+        }
+
+        metadata["devices"] = devices;
+
+        // Metadaten in das Hauptobjekt einfügen
+        jsonObject["metadata"] = metadata;
+
+        return jsonObject;
+    }
+
 
     void write_csv(std::atomic<int> &counter) {
         while(running) {
@@ -208,24 +266,76 @@ private:
         }
     }
 
-    void write(std::atomic<int> &counter) {
+    void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex) {
+        constexpr int batchSize = 1000;
+        nlohmann::json currentBatch;
+        currentBatch["data"] = nlohmann::json::array();
+
+        int batchCounter = 0;
+
+        while(running) {
+            if(websocketConnectionActive) {
+                if (counter > 0) {
+                    sample_T sample;
+
+                    std::lock_guard<std::mutex> lock(handleMutex);
+                    sample = handle.front();
+                    handle.pop_front();
+
+                    // add sample to Json object
+                    nlohmann::json sampleObject;
+                    sampleObject["timestamp"] = std::get<0>(sample);
+                    sampleObject["value"] = nlohmann::json::array();
+                    sampleObject["value"].push_back(std::get<1>(sample));
+
+                    const auto& optionalValues = std::get<2>(sample);
+                    if(optionalValues) {
+                        for (size_t i = 0; i < optionalValues->size(); ++i) {
+                            sampleObject["value"].push_back((*optionalValues)[i]);
+                        }
+                    }
+
+                    // push in JSON deque:
+
+                    currentBatch["data"].push_back(sampleObject);
+                    batchCounter ++;
+                    counter --;
+
+                    if(batchCounter >= batchSize) {
+                        std::lock_guard<std::mutex> lock(jsonMutex);
+                        jsonHandle.push_back(currentBatch);
+
+                        currentBatch["data"] = nlohmann::json::array();
+                        batchCounter = 0;
+                    }
+                    Datenanzahl++;
+                }
+            }
+        }
+    }
+
+    void write(std::atomic<int> &counter, std::mutex& jsonMutex) {
 
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
         }
-
-        // Write into a file
-        if(!filePath.empty()) {
-            // choose format
-            if(format == "csv") {
-                write_csv(counter);
-            }
-            else if(format == "json") {
-                write_json(counter);
-            }
+        if(WS) {
+            write_JsonObject(counter, jsonMutex);
         }
         else {
-            write_console(counter);
+            // Write into a file
+            if(!filePath.empty()) {
+                // choose format
+                if(format == "csv") {
+                    write_csv(counter);
+                }
+                else if(format == "json") {
+                    write_json(counter);
+                }
+            }
+            else {
+                write_console(counter);
+            }
         }
 
         if(verbose) {
@@ -234,51 +344,55 @@ private:
     }
 
 public:
-    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter)
-        :handle(handle), format(format), UUID(UUID), filePath(filePath) {
+    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter, bool &WS, std::deque<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
+        :handle(handle), format(format), UUID(UUID), filePath(filePath), WS(WS), jsonHandle(jsonHandle) {
         std::cout << std::fixed << std::setprecision(3);
-
-        if(!filePath.empty()) {
-            outFile.open(filePath, std::ios::app);
-            if (!outFile) {
-                throw std::ios_base::failure("Error opening file: " + filePath);
-            }// Write header
-            else if(format == "csv") {
-                outFile << "Timestamp [s]" << " , ";
-                for(size_t i = 0; i < UUID.size(); ++i) {
-                    outFile << UUID[i];
-                    if(i < UUID.size()-1) {
-                        outFile << " , ";
-                    }
-                }
-                outFile << "\n";
-            }
-            else if(format == "json") {
-                outFile << "{\"metadata\": {";
-                outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
-                for (size_t i = 0; i < UUID.size(); ++i) {
-                    outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
-                    if (i < UUID.size() - 1) {
-                        outFile << ",";
-                    }
-                }
-                outFile << "}" << "]";  // optional metadata: measurement, host
-                outFile << "},";
-            }
+        if(WS) {
+            HeaderJSON = createJsonObject(UUID);
         }
         else {
-            std::cout << "Timestamp [s]" << " , ";
-            for (size_t i = 0; i < UUID.size(); ++i) {
-                std::cout << UUID[i] << " [V]";
-                if (i < UUID.size() - 1) {
-                    std::cout << " , ";
+            if(!filePath.empty()) {
+                outFile.open(filePath, std::ios::app);
+                if (!outFile) {
+                    throw std::ios_base::failure("Error opening file: " + filePath);
+                }// Write header
+                else if(format == "csv") {
+                    outFile << "Timestamp [s]" << " , ";
+                    for(size_t i = 0; i < UUID.size(); ++i) {
+                        outFile << UUID[i];
+                        if(i < UUID.size()-1) {
+                            outFile << " , ";
+                        }
+                    }
+                    outFile << "\n";
+                }
+                else if(format == "json") {
+                    outFile << "{\"metadata\": {";
+                    outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
+                    for (size_t i = 0; i < UUID.size(); ++i) {
+                        outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
+                        if (i < UUID.size() - 1) {
+                            outFile << ",";
+                        }
+                    }
+                    outFile << "}" << "]";  // optional metadata: measurement, host
+                    outFile << "},";
                 }
             }
-            std::cout << "\n";
+            else {
+                std::cout << "Timestamp [s]" << " , ";
+                for (size_t i = 0; i < UUID.size(); ++i) {
+                    std::cout << UUID[i] << " [V]";
+                    if (i < UUID.size() - 1) {
+                        std::cout << " , ";
+                    }
+                }
+                std::cout << "\n";
+            }
         }
 
         // Starte den Thread erst nach dem Öffnen der Datei
-        writerThread = std::thread(&Writer::write, this, std::ref(counter));
+        writerThread = std::thread(&Writer::write, this, std::ref(counter), std::ref(jsonMutex));
     }
 
     ~Writer() {
@@ -302,30 +416,95 @@ public:
 
 };
 
-void waitForExit() { // wait until the user closes the programm by pressing ENTER
-    std::cout << "OmnAIView is starting. Press enter to stop the programm." << std::endl;
-    std::cin.sync();
-    std::cin.get();
-    running = false;
+//FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Closing the Programm and WS Connections savely:
+
+void customSignalHandler(int signal) {
+    if(signal == SIGINT) {
+        std::cout << "\ngot SIGINT. Stopping the programm..." << std::endl;
+        running = false;
+    }
 }
 
-void parseDeviceMetaData(Omniscope::MetaData metaData,
-                         std::shared_ptr<OmniscopeDevice> &device) {
-    try {
-        nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
-        if(verbose) {
-            fmt::println("{}", metaJson.dump());
+void ExitProgramm() {
+    std::cout << "Anzahl gesendeter Daten:" << Datenanzahl << std::endl;
+    if(WEBSOCKET_ACTIVE) {
+        crowApp.stop();
+    }
+    resetDevices();
+    stopAndJoinWSConnectionThreads();
+    stopAndJoinWSThread();
+    std::cout << "Programm was closed correctly, all threads closed" << std::endl;
+}
+
+void CloseWSConnection() {
+    // std::cout << "CloseWSConnectionStarted" << std::endl;
+    stopAndJoinWSConnectionThreads();
+    resetDevices();
+}
+
+void resetDevices() {
+    if(sampler.has_value()) {
+        for (auto &device : sampler->sampleDevices) {
+            device.first->send(Omniscope::Stop{});
         }
-        device->setScale(std::stod(metaJson["scale"].dump()));
-        device->setOffset(std::stod(metaJson["offset"].dump()));
-        device->setEgu(metaJson["egu"]);
-    } catch (...) {
-        if(verbose) {
-            fmt::print("This Scope is not calibrated: {}", metaData.data);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    sampler.reset();
+    devices.clear();
+    deviceManager.clearDevices();
+    //captureData.clear();
+    counter = 0;
+    clearAllDeques();
+}
+
+void clearAllDeques() {
+
+    if(!dataDeque.empty()) {
+        std::lock_guard<std::mutex> lock(handleMutex);
+        dataDeque.clear();
+    }
+    if(!packageDeque.empty()) {
+        std::lock_guard<std::mutex> lock(jsonMutex);
+        packageDeque.clear();
+    }
+}
+
+void stopAndJoinWSConnectionThreads() {
+    if(dataThreadActive) {
+        dataThreadActive = false;
+        if(dequeThread.joinable()) {
+            dequeThread.join();
+            if(verbose) {
+                std::cout << "dataThread joined" << std::endl;
+            }
+        }
+    }
+    if(sendDataThreadActive) {
+        sendDataThreadActive = false;
+        if(sendDataThread.joinable()) {
+            sendDataThread.join();
+            if(verbose) {
+                std::cout << "sendDataThread joined" << std::endl;
+            }
         }
     }
 }
 
+void stopAndJoinWSThread() {
+    if(WEBSOCKET_ACTIVE) {
+        WEBSOCKET_ACTIVE = false;
+        if(websocket.joinable()) {
+            websocket.join();
+            if(verbose) {
+                std::cout << "Websocket thread was joined" << std::endl;
+            }
+        }
+    }
+}
+
+//CONNECT_DEVICES//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void initDevices() { // Initalize the connected devices
     constexpr int VID = 0x2e8au;
@@ -352,24 +531,6 @@ void initDevices() { // Initalize the connected devices
         // set Callback for MetaData
         device->setMessageCallback(metaDataCb);
         device->send(Omniscope::GetMetaData{});
-    }
-}
-
-void printDevices() {
-
-    // get IDs
-    if(devices.empty()) {
-        std::cout << "No devices are connected. Please connect a device and start again" << std::endl;
-    }
-    else {
-        std::cout << "The following devices are connected:" << std::endl;
-        for(const auto& device : devices) {
-            std::string deviceId = device -> getId()->serial;
-            fmt::print("{}Device: {}\033[0m\n", rgbToAnsi(uuidToColor(deviceId)), deviceId);
-        }
-        devices.clear();
-        deviceManager.clearDevices();
-        running = false;
     }
 }
 
@@ -407,7 +568,84 @@ void selectDevices(std::vector<std::string> &UUID) {
     }
 }
 
-void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson) {
+void parseDeviceMetaData(Omniscope::MetaData metaData,
+                         std::shared_ptr<OmniscopeDevice> &device) {
+    try {
+        nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
+        if(verbose) {
+            fmt::println("{}", metaJson.dump());
+        }
+        device->setScale(std::stod(metaJson["scale"].dump()));
+        device->setOffset(std::stod(metaJson["offset"].dump()));
+        device->setEgu(metaJson["egu"]);
+    } catch (...) {
+        if(verbose) {
+            fmt::print("This Scope is not calibrated: {}", metaData.data);
+        }
+    }
+}
+
+//MEASUREMENT///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void printDevices() {
+
+    // get IDs
+    if(devices.empty()) {
+        std::cout << "No devices are connected. Please connect a device and start again" << std::endl;
+    }
+    else {
+        std::cout << "The following devices are connected:" << std::endl;
+        for(const auto& device : devices) {
+            std::string deviceId = device -> getId()->serial;
+            fmt::print("{}Device: {}\033[0m\n", rgbToAnsi(uuidToColor(deviceId)), deviceId);
+        }
+        devices.clear();
+        deviceManager.clearDevices();
+        running = false;
+    }
+}
+
+nlohmann::json getDevicesAsJson() {
+    nlohmann::json responseJson;
+
+    if (devices.empty()) {
+        // Kein Gerät verbunden
+        responseJson["error"] = "No devices are connected. Please connect a device and start again.";
+    } else {
+        // JSON-Arrays für Geräte und Farben erstellen
+        nlohmann::json devicesArray = nlohmann::json::array();
+        nlohmann::json colorsArray = nlohmann::json::array();
+
+        for (const auto& device : devices) {
+            // Gerätedaten extrahieren
+            std::string deviceId = device->getId()->serial;
+            auto color = uuidToColor(deviceId);
+
+            // Gerät zur JSON-Liste hinzufügen
+            devicesArray.push_back({{"UUID", deviceId}});
+
+            // Farbe zur JSON-Liste hinzufügen
+            nlohmann::json colorJson;
+            colorJson["color"]["r"] = std::get<0>(color);
+            colorJson["color"]["g"] = std::get<1>(color);
+            colorJson["color"]["b"] = std::get<2>(color);
+
+            colorsArray.push_back(colorJson);
+        }
+
+        // JSON-Daten zusammenstellen
+        responseJson["devices"] = devicesArray;
+        responseJson["colors"] = colorsArray;
+
+        // Geräte und Manager zurücksetzen
+        devices.clear();
+        deviceManager.clearDevices();
+    }
+
+    return responseJson;
+}
+
+void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson, bool &WS) {
     static bool startWriter = true;
     std::string format;
     if(isJson) {
@@ -415,29 +653,44 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
     }
     else format = "csv";
 
-    static std::atomic<int> counter(0);
-
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         sampler->copyOut(captureData);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter); // transform data into sample format
+        // to make sure there are enough samples in a vector to use the correct sample rate
+        const auto& [firstId, firstDeviceData] = *captureData.begin();
+        size_t vectorSize = firstDeviceData.size();
+
+        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
         delete transformi;
 
         if(startWriter) {
-            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter); // write data into a file or the console
+            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter, WS, packageDeque, jsonMutex); // write data into a file or the console
             startWriter = false;
         }
     }
 }
 
-void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson) {
-    while(running) {
-        searchDevices();   // Init Scopes
+void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson, bool &WS) {
+    if(WS) {
+        while(sendDataThreadActive) {
+            searchDevices();   // Init Scopes
 
-        selectDevices(UUID);  // select only chosen devices
+            selectDevices(UUID);  // select only chosen devices
 
-        printOrWriteData(filePath, UUID, isJson); // print the data in the console or save it in the given filepath
+            printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
+        }
+    }
+    else {
+        while(running) {
+            searchDevices();   // Init Scopes
+
+            selectDevices(UUID);  // select only chosen devices
+
+            printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
+        }
+        resetDevices();
     }
 }
 
@@ -458,9 +711,152 @@ std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
     return fmt::format("\033[38;2;{};{};{}m", r, g, b); // ANSI-Farbcode generieren
 }
 
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
+    auto [r, g, b] = rgb; // Tupel entpacken
+    return fmt::format("{};{};{}", r, g, b); // ANSI-Farbcode generieren
+}
+
 double round_to(double value, int decimals) {
     double factor = std::pow(10.0, decimals);
     return std::round(value * factor) / factor;
 }
 
+void WSTest() {
+    std::mutex mtx;
+    std::unordered_set<crow::websocket::connection*> users;
+    std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
+    bool json_temp = false;
+    bool ws_temp = true;
+    std::string file_temp = " ";
+
+    auto& cors = crowApp.get_middleware<crow::CORSHandler>();
+
+    cors
+    .global()
+    .origin("*") // Erlaube Anfragen von allen Domains (Browser-freundlich)
+    .headers("Origin", "Content-Type", "Accept", "X-Custom-Header", "Authorization") // Alle relevanten Header
+    .methods("POST"_method, "GET"_method, "OPTIONS"_method) // Erlaube POST, GET und OPTIONS (für Preflight)
+    .max_age(600); // Cache Preflight-Antworten für 10 Minuten
+    // clang-format on
+
+    WEBSOCKET_ACTIVE = true;
+
+    // API
+    CROW_ROUTE(crowApp, "/UUID") // HTTP GET auf "/hello"
+    ([]() {
+        searchDevices();
+        nlohmann::json devicesJson = getDevicesAsJson();
+        return crow::response(devicesJson.dump());
+    });
+
+    CROW_ROUTE(crowApp, "/help") // HTTP GET auf "/hello"
+    ([]() {
+        return std::string("Starting the websocket under ip/ws. Set one or multiply UUIDs by writing them after the hello message. \n")
+               + "The last input can be a sampling rate. The default sampling Rate is 60 Sa/s.\n"
+               + "The sampling Rate cant be higher than 100.000 Sa/s. Press enter to start the measurement.";
+    });
+
+    // OPTIONS-Endpunkt, um Preflight-Anfragen zu behandeln
+    CROW_ROUTE(crowApp, "/cors").methods("OPTIONS"_method)([]() {
+        return crow::response(204); // Antwort ohne Inhalt
+    });
+
+    // Websocket
+    CROW_WEBSOCKET_ROUTE(crowApp, "/ws")
+    .onopen([&](crow::websocket::connection& conn) {
+        websocketConnectionActive = true;
+        CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
+        std::lock_guard<std::mutex> _(mtx);
+        users.insert(&conn);
+        conn.send_text("Hello, connection established");
+    })
+    .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
+        websocketConnectionActive = false;
+        CROW_LOG_INFO << "websocket connection closed: " << reason;
+        CloseWSConnection();
+        std::lock_guard<std::mutex> _(mtx);
+        users.erase(&conn);
+    })
+    .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
+        CROW_LOG_INFO << "Received message: " << data;
+        std::lock_guard<std::mutex> _(mtx);
+        if(!data.empty()) {
+            char firstChar = data[0];
+            if(firstChar == 'E') {
+                clearAllDeques();
+                startUUIDs = splitString(data);
+
+                // deque processing in extra thread
+                dequeThread = std::thread(processDeque, std::ref(conn));
+                dataThreadActive = true;
+
+                if(verbose) {
+                    conn.send_text("Sending data was started via the client.");
+                }
+
+                sendDataThread = std::thread(startMeasurementAndWrite, std::ref(startUUIDs), std::ref(file_temp), std::ref(json_temp), std::ref(ws_temp));
+                sendDataThreadActive = true;
+            }
+            else if(data == "start") {
+                dequeThread = std::thread(processDeque, std::ref(conn));
+                dataThreadActive = true;
+
+                if(verbose) {
+                    conn.send_text("Sending data was started with set UUIDs via the CLI Tool");
+                }
+            }
+        }
+    });
+
+    crowApp.signal_clear();
+    std::signal(SIGINT, customSignalHandler);
+
+    crowApp.port(8080).multithreaded().run();
+}
+
+std::vector<std::string> splitString(const std::string& data) {
+    std::vector<std::string> result;
+    std::istringstream iss(data);
+    std::string word;
+
+    // Einzelne Wörter aus dem Stream extrahieren
+    while (iss >> word) {
+        if (word[0] == 'E') {
+            result.push_back(word);
+        } else {
+            try {
+                samplingRate = std::stoi(word);
+            } catch (const std::invalid_argument& e) {
+                std::cerr << "Not a valid Samplingrate: " << word << std::endl;
+            } catch (const std::out_of_range& e) {
+                std::cerr << "Number out of range: " << word << std::endl;
+            }
+        }
+    }
+    return result;
+}
+
+
+void processDeque(crow::websocket::connection& conn) {
+    while (running && websocketConnectionActive) {
+        //std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Polling-Intervall
+
+        std::lock_guard<std::mutex> lock(jsonMutex);
+        if (!packageDeque.empty()) {
+            // Hole das erste Element aus der deque
+            nlohmann::json firstElement = packageDeque.front();
+            packageDeque.pop_front();
+
+            nlohmann::ordered_json message;
+            message.update(firstElement);
+            message["devices"] = startUUIDs;  // UUIDs zuerst setzen
+
+            // Sende das JSON über den WebSocket
+            conn.send_text(message.dump());
+        }
+    }
+    if(verbose) {
+        std::cout << "Processdeque stopped" << std::endl;
+    }
+}
 

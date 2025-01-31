@@ -36,14 +36,19 @@ list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CMAKE_PROJECT_TOP_LEVEL_INCLUDE
 
 set(CMAKE_TOOLCHAIN_FILE "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti")
+
 project("MiniOmni" VERSION 0.0.1)
 
 if(MSVC)
     add_compile_options(
-        $<$<CONFIG:>:/MT> #---------|
-        $<$<CONFIG:Debug>:/MTd> #---|-- Statically link the runtime libraries
-        $<$<CONFIG:Release>:/MT> #--|
+        $<$<CONFIG:>:/MD> #---------|
+        $<$<CONFIG:Debug>:/MDd> #---|-- Statically link the runtime libraries
+        $<$<CONFIG:Release>:/MD> #--|
     )
+    #add_compile_options(/permissive-)
+    #set(Boost_USE_STATIC_LIBS "On")
+    #find_package( Boost 1.70 COMPONENTS system thread regex REQUIRED )
 endif()
 
 
@@ -55,7 +60,7 @@ add_subdirectory(${cli11_SOURCE_DIR} ${cli11_BINARY_DIR})
 add_executable(MiniOmni
                src/data.cpp)
 
-target_add_default_build_options(MiniOmni PUBLIC)
+#target_add_default_build_options(MiniOmni PUBLIC)
 
 find_or_fetch_package(
   cmake_git_version 0.1 GIT_REPOSITORY
@@ -63,6 +68,18 @@ find_or_fetch_package(
 
 add_subdirectory(aglio)
 target_link_libraries(MiniOmni PUBLIC aglio::aglio)
+
+find_package(Boost REQUIRED COMPONENTS system thread filesystem asio regex)
+target_include_directories(MiniOmni PRIVATE ${Boost_INCLUDE_DIRS})
+target_link_libraries(MiniOmni PRIVATE Boost::asio Boost::system Boost::thread Boost::filesystem Boost::regex)
+#target_compile_definitions(MiniOmni PUBLIC ASIO_STANDALONE=0)
+#target_compile_definitions(MiniOmni PUBLIC BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+
+find_package(OpenSSL REQUIRED)
+target_link_libraries(MiniOmni PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+
+find_package(Crow CONFIG REQUIRED)
+target_link_libraries(MiniOmni PRIVATE Crow::Crow)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)
@@ -79,5 +96,7 @@ target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
+
+target_compile_definitions(MiniOmni PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
 
 target_compile_features(MiniOmni PUBLIC cxx_std_23)
