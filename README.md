@@ -58,7 +58,7 @@ You will receive the data in a json format.
 1. Start the Websocket 
 
 Run the Websocket in the backend without specifying any UUIDS with the command : 
-```` 
+```
 .\MiniOmni -w 
 ``` 
 
