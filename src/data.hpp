@@ -59,7 +59,6 @@ void printOrWriteData(std::string &, std::vector<std::string> &, bool &, bool & 
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 double round_to(double, int);
-void processDeque(crow::websocket::connection&);
 std::vector<std::string> splitString(const std::string&);
 void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
 void resetDevices();
@@ -416,6 +415,36 @@ public:
 
 };
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+enum class DataDestination {
+    LOCALFILE,
+    WS
+};
+
+enum class FormatType {
+    CSV,
+    JSON,
+    BINARY,
+    UNKNOWN
+};
+
+class Measurement{
+public:
+    std::vector<std::string> uuids;
+    int samplingRate;
+    FormatType format = FormatType::UNKNOWN;
+    DataDestination dataDestination;
+    std::string filePath; // optional
+
+    Measurement(std::vector<std::string> uuids,std::string filePath, int samplingRate, FormatType fmt, DataDestination destination)
+        :uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
+    Measurement() = default;
+    ~Measurement() {}
+};
+
+Measurement parseData(const std::string& data);
+void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
+
 //FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Closing the Programm and WS Connections savely:
@@ -662,7 +691,6 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
                 sampler->copyOut(captureData);
             }
             if (captureData.empty()) {
-                std::cerr << "Error: captureData is empty!" << std::endl;
                 return;
             }
 
@@ -700,6 +728,31 @@ void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &fileP
             selectDevices(UUID);  // select only chosen devices
 
             printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
+        }
+        resetDevices();
+    }
+}
+void startMeasurementAndWriteTEMP(std::shared_ptr<Measurement> measurement);
+
+void startMeasurementAndWriteTEMP(std::shared_ptr<Measurement> measurement) {
+    if(measurement -> dataDestination == DataDestination::WS) {
+        while(sendDataThreadActive) {
+            searchDevices();   // Init Scopes
+
+            selectDevices(measurement->uuids);  // select only chosen devices
+            bool isJsonTemp= true;
+            bool isWS = true;
+            printOrWriteData(measurement->filePath, measurement->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
+        }
+    }
+    else {
+        while(running) {
+            searchDevices();   // Init Scopes
+
+            selectDevices(measurement->uuids);  // select only chosen devices
+            bool isJsonTemp= false;
+            bool isWS = false;
+            printOrWriteData(measurement->filePath, measurement->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
         }
         resetDevices();
     }
@@ -791,7 +844,23 @@ void WSTest() {
     .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
         CROW_LOG_INFO << "Received message: " << data;
         std::lock_guard<std::mutex> _(mtx);
-        if(!data.empty()) {
+        auto measurement = std::make_shared<Measurement>(parseData(data));
+        if(!measurement->uuids.empty()) {
+            clearAllDeques();
+
+            dequeThread = std::thread(processDeque, std::ref(conn), measurement);
+            dataThreadActive = true;
+            if(verbose) {
+                conn.send_text("Sending data was started via the client.");
+            }
+
+            sendDataThread = std::thread(startMeasurementAndWriteTEMP, measurement);
+            sendDataThreadActive = true;
+            std::cout << "Measurement was set" << std::endl;
+        }
+        // parseData(data, measurement);
+        // if(!requestedUUID.empty())
+        /*if(!data.empty()) {
             char firstChar = data[0];
             if(firstChar == 'E') {
                 clearAllDeques();
@@ -816,13 +885,60 @@ void WSTest() {
                     conn.send_text("Sending data was started with set UUIDs via the CLI Tool");
                 }
             }
-        }
+        }*/
     });
 
     crowApp.signal_clear();
     std::signal(SIGINT, customSignalHandler);
 
     crowApp.port(8080).multithreaded().run();
+}
+
+std::string formatToString(FormatType format) {
+    switch (format) {
+    case FormatType::CSV:
+        return "CSV";
+    case FormatType::JSON:
+        return "JSON";
+    case FormatType::BINARY:
+        return "Binary";
+    default:
+        return "Unknown";
+    }
+}
+
+Measurement parseData(const std::string& data) {
+    std::istringstream iss(data);
+    std::string token;
+    Measurement measurement;
+
+    bool foundSamplingRate = false;
+
+    while (iss >> token) {
+        // Prüfen, ob das Token mit "E" beginnt → UUID
+        if (!token.empty() && token[0] == 'E') {
+            measurement.uuids.push_back(token);
+        }
+        // Prüfen, ob das Token eine Zahl ist → Sampling Rate
+        else if (std::all_of(token.begin(), token.end(), ::isdigit)) {
+            measurement.samplingRate = std::stoi(token);
+            foundSamplingRate = true;
+        }
+        // Prüfen, ob das Token ein gültiges Format ist → Format setzen
+        else if (token == "csv") {
+            measurement.format = FormatType::CSV;
+        }
+        else if (token == "json") {
+            measurement.format = FormatType::JSON;
+        }
+        else if (token == "binary") {
+            measurement.format = FormatType::BINARY;
+        }
+    }
+
+    measurement.dataDestination = DataDestination::WS;
+    measurement.filePath = " ";
+    return measurement;
 }
 
 std::vector<std::string> splitString(const std::string& data) {
@@ -847,27 +963,28 @@ std::vector<std::string> splitString(const std::string& data) {
     return result;
 }
 
-
-void processDeque(crow::websocket::connection& conn) {
+void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement> measurement) {
     while (running && websocketConnectionActive) {
-        //std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Polling-Intervall
-
         std::lock_guard<std::mutex> lock(jsonMutex);
+
         if (!packageDeque.empty()) {
-            // Hole das erste Element aus der deque
-            nlohmann::json firstElement = packageDeque.front();
+            nlohmann::ordered_json message;
+            message.update(packageDeque.front());
             packageDeque.pop_front();
 
-            nlohmann::ordered_json message;
-            message.update(firstElement);
-            message["devices"] = startUUIDs;  // UUIDs zuerst setzen
+            if (!measurement->uuids.empty()) {
+                message["devices"] = nlohmann::json::array();
+                for (const auto& uuid : measurement->uuids) {
+                    message["devices"].push_back(uuid);
+                }
+            }
 
             // Sende das JSON über den WebSocket
             conn.send_text(message.dump());
         }
     }
-    if(verbose) {
+
+    if (verbose) {
         std::cout << "Processdeque stopped" << std::endl;
     }
 }
-
