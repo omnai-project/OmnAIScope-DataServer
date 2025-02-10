@@ -86,7 +86,7 @@ private:
         std::optional<std::vector<val_T>> otherX;
         int sampleQuotient = 10000;
 
-        if(samplingRate != 0) {
+        if(samplingRate < 10 || samplingRate > 100000) {
             sampleQuotient = 100000/samplingRate;
         }
         if(verbose) {
