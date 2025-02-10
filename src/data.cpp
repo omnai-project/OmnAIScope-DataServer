@@ -54,10 +54,6 @@ int main(int argc, char **argv) {
 
     if(WS) {
         websocket = std::thread(WSTest);
-        if(!startUUID.empty()) {
-            startMeasurementAndWrite(startUUID, filePath, isJson, WS);
-        }
-        // else client needs to send UUID to WS
     }
     while(running) {
         if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console

@@ -73,7 +73,7 @@ nlohmann::json getDevicesAsJson();
 
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class Transformater{ // Transforming data from captureData into a deque<sample_T> format
+class DequeFormatter{ // Formatting data from captureData into a deque<sample_T> format
 private:
     std::deque<sample_T>& handle;
     int samplingRate;
@@ -134,11 +134,11 @@ private:
     }
 
 public:
-    Transformater(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter, int &samplingRate)
+    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter, int &samplingRate)
         : handle(handle), samplingRate(samplingRate) {
         transformData(captureData, handle, UUID, counter);
     }
-    ~Transformater() {
+    ~DequeFormatter() {
     }
 };
 
@@ -673,8 +673,8 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
         }
 
 
-        Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
-        delete transformi;
+        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
+        delete dequeFormatter;
 
         if(startWriter) {
             Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter, WS, packageDeque, jsonMutex); // write data into a file or the console
