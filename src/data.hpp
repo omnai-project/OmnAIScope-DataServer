@@ -46,20 +46,17 @@ bool sendDataThreadActive = false;
 static std::atomic<int> counter(0);
 static int samplingRate(0);
 static int Datenanzahl(0);
-std::vector<std::string> startUUIDs;
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
-void startMeasurementAndWrite(std::vector<std::string> &, std::string &, bool &, bool &);
-void selectDevices();
+void selectDevices(std::vector<std::string> &UUID);
 void printOrWriteData(std::string &, std::vector<std::string> &, bool &, bool & );
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 double round_to(double, int);
-std::vector<std::string> splitString(const std::string&);
 void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
 void resetDevices();
 void clearAllDeques();
@@ -428,7 +425,7 @@ enum class FormatType {
     UNKNOWN
 };
 
-class Measurement{
+class Measurement:  public std::enable_shared_from_this<Measurement> {
 public:
     std::vector<std::string> uuids;
     int samplingRate;
@@ -440,6 +437,32 @@ public:
         :uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
     Measurement() = default;
     ~Measurement() {}
+
+    void start() {
+        auto self = shared_from_this();
+
+        if(self -> dataDestination == DataDestination::WS) {
+            while(sendDataThreadActive) {
+                searchDevices();   // Init Scopes
+
+                selectDevices(self->uuids);  // select only chosen devices
+                bool isJsonTemp= true;
+                bool isWS = true;
+                printOrWriteData(self->filePath, self->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
+            }
+        }
+        else {
+            while(running) {
+                searchDevices();   // Init Scopes
+
+                selectDevices(self->uuids);  // select only chosen devices
+                bool isJsonTemp= false;
+                bool isWS = false;
+                printOrWriteData(self->filePath, self->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
+            }
+            resetDevices();
+        }
+    }
 };
 
 Measurement parseData(const std::string& data);
@@ -700,7 +723,6 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
             vectorSize = updatedDeviceData.size();
         }
 
-
         DequeFormatter* dequeFormatter = new DequeFormatter(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
         delete dequeFormatter;
 
@@ -708,53 +730,6 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
             Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter, WS, packageDeque, jsonMutex); // write data into a file or the console
             startWriter = false;
         }
-    }
-}
-
-void startMeasurementAndWrite(std::vector<std::string> &UUID, std::string &filePath, bool &isJson, bool &WS) {
-    if(WS) {
-        while(sendDataThreadActive) {
-            searchDevices();   // Init Scopes
-
-            selectDevices(UUID);  // select only chosen devices
-
-            printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
-        }
-    }
-    else {
-        while(running) {
-            searchDevices();   // Init Scopes
-
-            selectDevices(UUID);  // select only chosen devices
-
-            printOrWriteData(filePath, UUID, isJson, WS); // print the data in the console or save it in the given filepath
-        }
-        resetDevices();
-    }
-}
-void startMeasurementAndWriteTEMP(std::shared_ptr<Measurement> measurement);
-
-void startMeasurementAndWriteTEMP(std::shared_ptr<Measurement> measurement) {
-    if(measurement -> dataDestination == DataDestination::WS) {
-        while(sendDataThreadActive) {
-            searchDevices();   // Init Scopes
-
-            selectDevices(measurement->uuids);  // select only chosen devices
-            bool isJsonTemp= true;
-            bool isWS = true;
-            printOrWriteData(measurement->filePath, measurement->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
-        }
-    }
-    else {
-        while(running) {
-            searchDevices();   // Init Scopes
-
-            selectDevices(measurement->uuids);  // select only chosen devices
-            bool isJsonTemp= false;
-            bool isWS = false;
-            printOrWriteData(measurement->filePath, measurement->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
-        }
-        resetDevices();
     }
 }
 
@@ -854,57 +829,16 @@ void WSTest() {
                 conn.send_text("Sending data was started via the client.");
             }
 
-            sendDataThread = std::thread(startMeasurementAndWriteTEMP, measurement);
+            sendDataThread = std::thread(&Measurement::start, measurement);
             sendDataThreadActive = true;
             std::cout << "Measurement was set" << std::endl;
         }
-        // parseData(data, measurement);
-        // if(!requestedUUID.empty())
-        /*if(!data.empty()) {
-            char firstChar = data[0];
-            if(firstChar == 'E') {
-                clearAllDeques();
-                startUUIDs = splitString(data);
-
-                // deque processing in extra thread
-                dequeThread = std::thread(processDeque, std::ref(conn));
-                dataThreadActive = true;
-
-                if(verbose) {
-                    conn.send_text("Sending data was started via the client.");
-                }
-
-                sendDataThread = std::thread(startMeasurementAndWrite, std::ref(startUUIDs), std::ref(file_temp), std::ref(json_temp), std::ref(ws_temp));
-                sendDataThreadActive = true;
-            }
-            else if(data == "start") {
-                dequeThread = std::thread(processDeque, std::ref(conn));
-                dataThreadActive = true;
-
-                if(verbose) {
-                    conn.send_text("Sending data was started with set UUIDs via the CLI Tool");
-                }
-            }
-        }*/
     });
 
     crowApp.signal_clear();
     std::signal(SIGINT, customSignalHandler);
 
     crowApp.port(8080).multithreaded().run();
-}
-
-std::string formatToString(FormatType format) {
-    switch (format) {
-    case FormatType::CSV:
-        return "CSV";
-    case FormatType::JSON:
-        return "JSON";
-    case FormatType::BINARY:
-        return "Binary";
-    default:
-        return "Unknown";
-    }
 }
 
 Measurement parseData(const std::string& data) {
@@ -939,28 +873,6 @@ Measurement parseData(const std::string& data) {
     measurement.dataDestination = DataDestination::WS;
     measurement.filePath = " ";
     return measurement;
-}
-
-std::vector<std::string> splitString(const std::string& data) {
-    std::vector<std::string> result;
-    std::istringstream iss(data);
-    std::string word;
-
-    // Einzelne Wörter aus dem Stream extrahieren
-    while (iss >> word) {
-        if (word[0] == 'E') {
-            result.push_back(word);
-        } else {
-            try {
-                samplingRate = std::stoi(word);
-            } catch (const std::invalid_argument& e) {
-                std::cerr << "Not a valid Samplingrate: " << word << std::endl;
-            } catch (const std::out_of_range& e) {
-                std::cerr << "Number out of range: " << word << std::endl;
-            }
-        }
-    }
-    return result;
 }
 
 void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement> measurement) {

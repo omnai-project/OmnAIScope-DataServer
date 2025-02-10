@@ -56,18 +56,18 @@ int main(int argc, char **argv) {
         websocket = std::thread(WSTest);
     }
 
-    DataDestination destination = DataDestination::WS; 
-    FormatType format = FormatType::CSV; 
+    DataDestination destination = DataDestination::WS;
+    FormatType format = FormatType::CSV;
     while(running) {
         if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
-            if(!WS){
-                destination = DataDestination::LOCALFILE; 
+            if(!WS) {
+                destination = DataDestination::LOCALFILE;
             }
-            if(isJson){
-                format = FormatType::JSON; 
+            if(isJson) {
+                format = FormatType::JSON;
             }
-            auto measurement = std::make_shared<Measurement>(startUUID, filePath, 10000, format, destination); 
-            startMeasurementAndWriteTEMP(measurement);
+            auto measurement = std::make_shared<Measurement>(startUUID, filePath, 10000, format, destination);
+            measurement->start();
         }
     }
 
