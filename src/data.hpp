@@ -100,6 +100,7 @@ private:
         // Access to first device
         const auto& [firstId, firstDeviceData] = *captureData.begin();
         size_t vectorSize = firstDeviceData.size();
+        std::cout << "Vektorgröße transformer:" << vectorSize << std::endl; 
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
             if((currentPosition + sampleQuotient) < vectorSize) {
@@ -657,25 +658,26 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
     if(sampler.has_value()) { // write Data into file
         captureData.clear();
         // to make sure there are enough samples in a vector to use the correct sample rate
-        auto it = captureData.begin();
-        auto& [firstId, firstDeviceData] = *it; // Initiale Bindung
-        size_t vectorSize = 0;
+        int vectorSize = 0;
         //std::cout << vectorSize << std::endl;
 
         while (vectorSize < 100000) {
-            std::cout << vectorSize << std::endl;
             // Erneut den Iterator abrufen
-            it = captureData.begin();
 
             // Neue strukturierte Bindung anlegen
-            auto& [updatedId, updatedDeviceData] = *it;
-
-            firstDeviceData = updatedDeviceData;
-
-            vectorSize = firstDeviceData.size();
             if(sampler.has_value()) {
                 sampler->copyOut(captureData);
             }
+            if (captureData.empty()) {
+                std::cerr << "Error: captureData is empty!" << std::endl;
+                return;
+            }
+            
+            auto it = captureData.begin();
+            auto& [updatedId, updatedDeviceData] = *it;
+
+            vectorSize = updatedDeviceData.size();
+            std::cout << vectorSize << std::endl;
         }
 
 
