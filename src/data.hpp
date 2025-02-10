@@ -84,9 +84,9 @@ private:
         ts_T timeStamp = 0;
         val_T firstX = 0;
         std::optional<std::vector<val_T>> otherX;
-        int sampleQuotient = 60;
+        int sampleQuotient = 10000;
 
-        if(samplingRate != 0) {
+        if(samplingRate < 10 || samplingRate > 100000) {
             sampleQuotient = 100000/samplingRate;
         }
         if(verbose) {
@@ -103,7 +103,7 @@ private:
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
             if((currentPosition + sampleQuotient) < vectorSize) {
-                currentPosition = currentPosition + sampleQuotient;
+                currentPosition = currentPosition + sampleQuotient-1;
             }
             else return;
 
@@ -267,7 +267,7 @@ private:
     }
 
     void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex) {
-        constexpr int batchSize = 1000;
+        constexpr int batchSize = 1;
         nlohmann::json currentBatch;
         currentBatch["data"] = nlohmann::json::array();
 
@@ -653,14 +653,25 @@ void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, boo
     }
     else format = "csv";
 
-    if(sampler.has_value()) { // write Data into file
+    if(sampler.has_value()) {
         captureData.clear();
-        sampler->copyOut(captureData);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        int vectorSize = 0;
 
-        // to make sure there are enough samples in a vector to use the correct sample rate
-        const auto& [firstId, firstDeviceData] = *captureData.begin();
-        size_t vectorSize = firstDeviceData.size();
+        while (vectorSize < 100000) {
+            if(sampler.has_value()) {
+                sampler->copyOut(captureData);
+            }
+            if (captureData.empty()) {
+                std::cerr << "Error: captureData is empty!" << std::endl;
+                return;
+            }
+
+            auto it = captureData.begin();
+            auto& [updatedId, updatedDeviceData] = *it;
+
+            vectorSize = updatedDeviceData.size();
+        }
+
 
         Transformater* transformi = new Transformater(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
         delete transformi;
