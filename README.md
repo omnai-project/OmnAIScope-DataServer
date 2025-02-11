@@ -27,31 +27,7 @@ The CLI-Tool includes the following functionalities:
 
 ### How to use the Websocket: 
 
-The websocket currently can be used in two ways via the CLI Tool or in a client-based setup. 
-
-1. Using the Websocket with the CLI Tool 
-
-Step 1: Start the Websocket 
-
-To start the Websocket and initialize the devices, use the following command: 
-```
-.\MiniOmni -d <UUID> -w 
-```
-The UUID is emplaced with the UUIDs of the connected devices. This will initalize the devices and directly start the measurement. 
-
-Step 2: Open a WS connection on the client side 
-
-To connect to the websocket use a client tool like wscat : 
-```
-wscat -c ws://<ip>:8080/ws
-```
-
-Step 3: Start data transmission: 
-To begin receiving data from the Websocket, send the following command from the client : 
-```
-start 
-```
-You will receive the data in a json format. 
+The websocket currently can be used in a client-based setup. 
 
 2. Using the Websocket in a Client-based Setup 
 
