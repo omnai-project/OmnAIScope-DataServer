@@ -43,8 +43,7 @@ std::atomic<bool> websocketConnectionActive{false};
 crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
 bool sendDataThreadActive = false;
-static std::atomic<int> counter(0);
-static int samplingRate(0);
+static std::atomic<int> dataPointsInSampleQue(0);
 static int Datenanzahl(0);
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -74,7 +73,7 @@ private:
     std::deque<sample_T>& handle;
     int samplingRate;
 
-    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string>& UUID, std::atomic<int>& counter) {
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue) {
         // transform Data into the sample format
         int currentPosition = 0;
         ts_T timeStamp = 0;
@@ -125,14 +124,14 @@ private:
             //thread save acces to handle and counter
             std::lock_guard<std::mutex> lock(handleMutex);
             handle.push_back(sample);
-            counter++;
+            dataPointsInSampleQue++;
         }
     }
 
 public:
-    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle,std::vector<std::string> &UUID, std::atomic<int>& counter, int &samplingRate)
+    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue, int &samplingRate)
         : handle(handle), samplingRate(samplingRate) {
-        transformData(captureData, handle, UUID, counter);
+        transformData(captureData, handle, dataPointsInSampleQue);
     }
     ~DequeFormatter() {
     }
@@ -174,9 +173,9 @@ private:
     }
 
 
-    void write_csv(std::atomic<int> &counter) {
+    void write_csv(std::atomic<int> &dataPointsInSampleQue) {
         while(running) {
-            if(counter > 0) {
+            if(dataPointsInSampleQue > 0) {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(handleMutex);
                 sample = handle.front();
@@ -193,16 +192,16 @@ private:
                     }
                 }
                 outFile << "\n";
-                counter --;
+                dataPointsInSampleQue --;
             }
         }
     }
 
-    void write_json(std::atomic<int> &counter) {
+    void write_json(std::atomic<int> &dataPointsInSampleQue) {
 
         outFile << "\"data\": " << "[";
         while(running) {
-            if(counter > 0) {
+            if(dataPointsInSampleQue > 0) {
                 int i = 0;
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(handleMutex);
@@ -225,16 +224,16 @@ private:
                     }
                 }
                 outFile << "]" << "}" << ",";
-                counter --;
+                dataPointsInSampleQue --;
                 i = 0;
             }
         }
         outFile << "]";
     }
 
-    void write_console(std::atomic<int> &counter) {
+    void write_console(std::atomic<int> &dataPointsInSampleQue) {
         while(running) {
-            if(counter > 0) {
+            if(dataPointsInSampleQue > 0) {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(handleMutex);
                 sample = handle.front();
@@ -257,12 +256,12 @@ private:
 
                 std::cout << "]" << std::flush;
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                counter --;
+                dataPointsInSampleQue --;
             }
         }
     }
 
-    void write_JsonObject(std::atomic<int> &counter, std::mutex& jsonMutex) {
+    void write_JsonObject(std::atomic<int> &dataPointsInSampleQue, std::mutex& jsonMutex) {
         constexpr int batchSize = 1;
         nlohmann::json currentBatch;
         currentBatch["data"] = nlohmann::json::array();
@@ -271,7 +270,7 @@ private:
 
         while(running) {
             if(websocketConnectionActive) {
-                if (counter > 0) {
+                if (dataPointsInSampleQue > 0) {
                     sample_T sample;
 
                     std::lock_guard<std::mutex> lock(handleMutex);
@@ -295,7 +294,7 @@ private:
 
                     currentBatch["data"].push_back(sampleObject);
                     batchCounter ++;
-                    counter --;
+                    dataPointsInSampleQue --;
 
                     if(batchCounter >= batchSize) {
                         std::lock_guard<std::mutex> lock(jsonMutex);
@@ -310,7 +309,6 @@ private:
         }
     }
 
-    void write(std::atomic<int> &counter, std::mutex& jsonMutex) {
 
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
@@ -323,14 +321,15 @@ private:
             if(!filePath.empty()) {
                 // choose format
                 if(format == "csv") {
-                    write_csv(counter);
+                    write_csv(dataPointsInSampleQue);
                 }
                 else if(format == "json") {
-                    write_json(counter);
+                else if(measurement->format == FormatType::JSON) {
+                    write_json(dataPointsInSampleQue);
                 }
             }
             else {
-                write_console(counter);
+                write_console(dataPointsInSampleQue);
             }
         }
 
@@ -507,7 +506,7 @@ void resetDevices() {
     devices.clear();
     deviceManager.clearDevices();
     //captureData.clear();
-    counter = 0;
+    dataPointsInSampleQue = 0;
     clearAllDeques();
 }
 
@@ -807,11 +806,11 @@ void WSTest() {
         CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
         std::lock_guard<std::mutex> _(mtx);
         users.insert(&conn);
-        conn.send_text("Hello, connection established");
+        conn.send_text("Hello, connection to websocket established. To start a measurement send the wished UUID, optional send a sampling rate between 10 and 100000");
     })
     .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
         websocketConnectionActive = false;
-        CROW_LOG_INFO << "websocket connection closed: " << reason;
+        CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
         CloseWSConnection();
         std::lock_guard<std::mutex> _(mtx);
         users.erase(&conn);
