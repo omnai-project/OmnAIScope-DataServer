@@ -17,6 +17,13 @@
 #include "crow.h"
 #include "crow/middlewares/cors.h"
 
+//CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+class Writer;
+class Measurement;
+enum class DataDestination;
+enum class FormatType;
+
 //GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
 using val_T = double;
@@ -52,7 +59,6 @@ void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void selectDevices(std::vector<std::string> &UUID);
-void printOrWriteData(std::string &, std::vector<std::string> &, bool &, bool & );
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 double round_to(double, int);
@@ -65,6 +71,8 @@ void ExitProgramm();
 void CloseWSConnection();
 std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
 nlohmann::json getDevicesAsJson();
+Measurement parseWSDataToMeasurement(const std::string& data);
+void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
 
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -137,18 +145,68 @@ public:
     }
 };
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//MEASUREMENT///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+enum class DataDestination {
+    LOCALFILE,
+    WS
+};
+
+enum class FormatType {
+    CSV,
+    JSON,
+    BINARY,
+    UNKNOWN
+};
+
+void printOrWriteData(std::shared_ptr<Measurement> measurement);
+
+class Measurement:  public std::enable_shared_from_this<Measurement> {
+public:
+    std::vector<std::string> uuids;
+    int samplingRate;
+    FormatType format = FormatType::UNKNOWN;
+    DataDestination dataDestination;
+    std::string filePath; // optional
+
+    Measurement(std::vector<std::string> uuids,std::string filePath, int samplingRate, FormatType fmt, DataDestination destination)
+        :uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
+    Measurement() = default;
+    ~Measurement() {}
+
+    void start() {
+        auto self = shared_from_this();
+
+        if(self -> dataDestination == DataDestination::WS) {
+            while(sendDataThreadActive) {
+                searchDevices();   // Init Scopes
+
+                selectDevices(self->uuids);  // select only chosen devices
+                printOrWriteData(self); // print the data in the console or save it in the given filepath
+            }
+        }
+        else {
+            while(running) {
+                searchDevices();   // Init Scopes
+
+                selectDevices(self->uuids);  // select only chosen devices
+                printOrWriteData(self); // print the data in the console or save it in the given filepath
+            }
+            resetDevices();
+        }
+    }
+};
+
+
+//WRITER//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class Writer{ // write data into various formats, including a json object for the Websocket
 private:
-    std::string format;
-    std::string filePath;
     std::ofstream outFile;
     std::deque<sample_T>& handle;
     std::deque<nlohmann::json>& jsonHandle;
     std::thread writerThread;
-    std::vector<std::string> UUID;
-    bool WS;
+    std::shared_ptr<Measurement> measurement;
 
     nlohmann::json createJsonObject(const std::vector<std::string>& UUIDs) {
         nlohmann::json jsonObject;
@@ -209,7 +267,7 @@ private:
                 handle.pop_front();
 
                 outFile << "{\"timestamp\" : " << std::get<0>(sample) << ","<< "\"value\": [" << std::get<1>(sample);
-                if (i < UUID.size() -1) {
+                if (i < measurement->uuids.size() -1) {
                     outFile << ",";
                     i++;
                 }
@@ -217,7 +275,7 @@ private:
                 if(optionalValues) {
                     for(const auto& value : optionalValues.value()) {
                         outFile << value;
-                        if (i < UUID.size()-1) {
+                        if (i < measurement->uuids.size()-1) {
                             outFile << ",";
                             i++;
                         }
@@ -309,21 +367,22 @@ private:
         }
     }
 
+    void write(std::atomic<int> &dataPointsInSampleQue, std::mutex& jsonMutex) {
 
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
         }
-        if(WS) {
-            write_JsonObject(counter, jsonMutex);
+        // seperate for data destination
+        if(measurement->dataDestination == DataDestination::WS) {
+            write_JsonObject(dataPointsInSampleQue, jsonMutex);
         }
-        else {
+        else if (measurement->dataDestination == DataDestination::LOCALFILE) {
             // Write into a file
-            if(!filePath.empty()) {
+            if(!measurement->filePath.empty()) {
                 // choose format
-                if(format == "csv") {
+                if(measurement->format == FormatType::CSV) {
                     write_csv(dataPointsInSampleQue);
                 }
-                else if(format == "json") {
                 else if(measurement->format == FormatType::JSON) {
                     write_json(dataPointsInSampleQue);
                 }
@@ -339,34 +398,38 @@ private:
     }
 
 public:
-    Writer(std::string& format, std::string &filePath, std::vector<std::string> &UUID, std::deque<sample_T>& handle, std::atomic<int>& counter, bool &WS, std::deque<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
-        :handle(handle), format(format), UUID(UUID), filePath(filePath), WS(WS), jsonHandle(jsonHandle) {
+    Writer(std::shared_ptr<Measurement> measurement, std::deque<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::deque<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
+        :handle(handle), measurement(measurement), jsonHandle(jsonHandle) {
         std::cout << std::fixed << std::setprecision(3);
-        if(WS) {
-            HeaderJSON = createJsonObject(UUID);
+
+        // Seperation by data destination
+        if(measurement->dataDestination == DataDestination::WS) {
+            if(measurement->format == FormatType::JSON) {
+                HeaderJSON = createJsonObject(measurement->uuids);
+            }
         }
-        else {
-            if(!filePath.empty()) {
-                outFile.open(filePath, std::ios::app);
+        else if(measurement->dataDestination == DataDestination::LOCALFILE) {
+            if(!measurement->filePath.empty()) {
+                outFile.open(measurement->filePath, std::ios::app);
                 if (!outFile) {
-                    throw std::ios_base::failure("Error opening file: " + filePath);
+                    throw std::ios_base::failure("Error opening file: " + measurement->filePath);
                 }// Write header
-                else if(format == "csv") {
+                else if(measurement->format == FormatType::CSV) {
                     outFile << "Timestamp [s]" << " , ";
-                    for(size_t i = 0; i < UUID.size(); ++i) {
-                        outFile << UUID[i];
-                        if(i < UUID.size()-1) {
+                    for(size_t i = 0; i < measurement->uuids.size(); ++i) {
+                        outFile << measurement->uuids[i];
+                        if(i < measurement->uuids.size()-1) {
                             outFile << " , ";
                         }
                     }
                     outFile << "\n";
                 }
-                else if(format == "json") {
+                else if(measurement->format == FormatType::JSON) {
                     outFile << "{\"metadata\": {";
                     outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
-                    for (size_t i = 0; i < UUID.size(); ++i) {
-                        outFile << "\"" << "UUID" << "\"" << ": " << "\"" << UUID[i] << "\"";
-                        if (i < UUID.size() - 1) {
+                    for (size_t i = 0; i < measurement->uuids.size(); ++i) {
+                        outFile << "\"" << "UUID" << "\"" << ": " << "\"" << measurement->uuids[i] << "\"";
+                        if (i < measurement->uuids.size() - 1) {
                             outFile << ",";
                         }
                     }
@@ -376,9 +439,9 @@ public:
             }
             else {
                 std::cout << "Timestamp [s]" << " , ";
-                for (size_t i = 0; i < UUID.size(); ++i) {
-                    std::cout << UUID[i] << " [V]";
-                    if (i < UUID.size() - 1) {
+                for (size_t i = 0; i < measurement->uuids.size(); ++i) {
+                    std::cout << measurement->uuids[i] << " [V]";
+                    if (i < measurement->uuids.size() - 1) {
                         std::cout << " , ";
                     }
                 }
@@ -387,12 +450,12 @@ public:
         }
 
         // Starte den Thread erst nach dem Öffnen der Datei
-        writerThread = std::thread(&Writer::write, this, std::ref(counter), std::ref(jsonMutex));
+        writerThread = std::thread(&Writer::write, this, std::ref(dataPointsInSampleQue), std::ref(jsonMutex));
     }
 
     ~Writer() {
-        if(!filePath.empty()) {
-            if(format == "json") {
+        if(!measurement->filePath.empty()) {
+            if(measurement->format == FormatType::JSON) {
                 outFile << "}";
             }
             // write Trailer
@@ -410,62 +473,6 @@ public:
     }
 
 };
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-enum class DataDestination {
-    LOCALFILE,
-    WS
-};
-
-enum class FormatType {
-    CSV,
-    JSON,
-    BINARY,
-    UNKNOWN
-};
-
-class Measurement:  public std::enable_shared_from_this<Measurement> {
-public:
-    std::vector<std::string> uuids;
-    int samplingRate;
-    FormatType format = FormatType::UNKNOWN;
-    DataDestination dataDestination;
-    std::string filePath; // optional
-
-    Measurement(std::vector<std::string> uuids,std::string filePath, int samplingRate, FormatType fmt, DataDestination destination)
-        :uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
-    Measurement() = default;
-    ~Measurement() {}
-
-    void start() {
-        auto self = shared_from_this();
-
-        if(self -> dataDestination == DataDestination::WS) {
-            while(sendDataThreadActive) {
-                searchDevices();   // Init Scopes
-
-                selectDevices(self->uuids);  // select only chosen devices
-                bool isJsonTemp= true;
-                bool isWS = true;
-                printOrWriteData(self->filePath, self->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
-            }
-        }
-        else {
-            while(running) {
-                searchDevices();   // Init Scopes
-
-                selectDevices(self->uuids);  // select only chosen devices
-                bool isJsonTemp= false;
-                bool isWS = false;
-                printOrWriteData(self->filePath, self->uuids, isJsonTemp, isWS); // print the data in the console or save it in the given filepath
-            }
-            resetDevices();
-        }
-    }
-};
-
-Measurement parseData(const std::string& data);
-void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
 
 //FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -636,7 +643,49 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
     }
 }
 
-//MEASUREMENT///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//DATAHANDELING///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void printOrWriteData(std::shared_ptr<Measurement> measurement) {
+    static bool startWriter = true;
+    std::string stringFormat;
+    bool isWS = false;
+
+    if (measurement->dataDestination == DataDestination::WS) {
+        isWS = true;
+    }
+
+    if (measurement->format == FormatType::JSON) {
+        stringFormat = "json";
+    } else {
+        stringFormat = "csv";
+    }
+
+    if (sampler.has_value()) {
+        captureData.clear();
+        int vectorSize = 0;
+
+        while (vectorSize < 100000) {
+            if (sampler.has_value()) {
+                sampler->copyOut(captureData);
+            }
+            if (captureData.empty()) {
+                return;
+            }
+
+            auto it = captureData.begin();
+            auto& [updatedId, updatedDeviceData] = *it;
+            vectorSize = static_cast<int>(updatedDeviceData.size());
+        }
+
+        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, dataDeque, dataPointsInSampleQue, measurement->samplingRate);
+        delete dequeFormatter;
+
+        if (startWriter) {
+            Writer* writi = new Writer(measurement, dataDeque, dataPointsInSampleQue, packageDeque, jsonMutex);
+            startWriter = false;
+        }
+    }
+}
 
 void printDevices() {
 
@@ -694,42 +743,6 @@ nlohmann::json getDevicesAsJson() {
     }
 
     return responseJson;
-}
-
-void printOrWriteData(std::string &filePath, std::vector<std::string> &UUID, bool &isJson, bool &WS) {
-    static bool startWriter = true;
-    std::string format;
-    if(isJson) {
-        format = "json";
-    }
-    else format = "csv";
-
-    if(sampler.has_value()) {
-        captureData.clear();
-        int vectorSize = 0;
-
-        while (vectorSize < 100000) {
-            if(sampler.has_value()) {
-                sampler->copyOut(captureData);
-            }
-            if (captureData.empty()) {
-                return;
-            }
-
-            auto it = captureData.begin();
-            auto& [updatedId, updatedDeviceData] = *it;
-
-            vectorSize = updatedDeviceData.size();
-        }
-
-        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, dataDeque, UUID, counter, samplingRate); // transform data into sample format
-        delete dequeFormatter;
-
-        if(startWriter) {
-            Writer* writi = new Writer(format, filePath, UUID, dataDeque, counter, WS, packageDeque, jsonMutex); // write data into a file or the console
-            startWriter = false;
-        }
-    }
 }
 
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& uuid) {
@@ -818,7 +831,7 @@ void WSTest() {
     .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
         CROW_LOG_INFO << "Received message: " << data;
         std::lock_guard<std::mutex> _(mtx);
-        auto measurement = std::make_shared<Measurement>(parseData(data));
+        auto measurement = std::make_shared<Measurement>(parseWSDataToMeasurement(data));
         if(!measurement->uuids.empty()) {
             clearAllDeques();
 
@@ -840,10 +853,12 @@ void WSTest() {
     crowApp.port(8080).multithreaded().run();
 }
 
-Measurement parseData(const std::string& data) {
+Measurement parseWSDataToMeasurement(const std::string& data) {
     std::istringstream iss(data);
     std::string token;
     Measurement measurement;
+    measurement.dataDestination = DataDestination::WS;
+    measurement.format = FormatType::JSON;
 
     bool foundSamplingRate = false;
 
@@ -868,8 +883,6 @@ Measurement parseData(const std::string& data) {
             measurement.format = FormatType::BINARY;
         }
     }
-
-    measurement.dataDestination = DataDestination::WS;
     measurement.filePath = " ";
     return measurement;
 }
