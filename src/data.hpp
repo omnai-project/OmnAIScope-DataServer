@@ -9,7 +9,7 @@
 #include <tuple>
 #include <functional>
 #include <nlohmann/json.hpp>
-#include <deque>
+#include <queue>
 #include <cmath>
 #include <unordered_set>
 #include <mutex>
@@ -37,12 +37,12 @@ inline std::optional<OmniscopeSampler> sampler{};
 inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
 std::atomic<bool> running{true};
 bool verbose{false};
-std::deque<sample_T> dataDeque;
-std::mutex handleMutex;
+std::queue<sample_T> sampleQueue;
+std::mutex sampleQueueMutex;
 std::mutex jsonMutex;
 nlohmann::json HeaderJSON;
-std::deque<nlohmann::json> packageDeque;
-std::thread dequeThread;
+std::queue<nlohmann::json> wsPackagesQueue;
+std::thread queueThread;
 std::thread sendDataThread;
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
 std::atomic<bool> dataThreadActive{false};
@@ -73,15 +73,20 @@ std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
 nlohmann::json getDevicesAsJson();
 Measurement parseWSDataToMeasurement(const std::string& data);
 void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
+template<typename T, typename Container = std::deque<T>>
+void clearQueue(std::queue<T, Container>& q) {
+    std::queue<T, Container> empty;
+    std::swap(q, empty);
+};
 
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class DequeFormatter{ // Formatting data from captureData into a deque<sample_T> format
 private:
-    std::deque<sample_T>& handle;
+    std::queue<sample_T>& handle;
     int samplingRate;
 
-    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue) {
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::queue<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue) {
         // transform Data into the sample format
         int currentPosition = 0;
         ts_T timeStamp = 0;
@@ -130,14 +135,14 @@ private:
             sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
 
             //thread save acces to handle and counter
-            std::lock_guard<std::mutex> lock(handleMutex);
-            handle.push_back(sample);
+            std::lock_guard<std::mutex> lock(sampleQueueMutex);
+            handle.push(sample);
             dataPointsInSampleQue++;
         }
     }
 
 public:
-    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::deque<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue, int &samplingRate)
+    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::queue<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue, int &samplingRate)
         : handle(handle), samplingRate(samplingRate) {
         transformData(captureData, handle, dataPointsInSampleQue);
     }
@@ -203,8 +208,8 @@ public:
 class Writer{ // write data into various formats, including a json object for the Websocket
 private:
     std::ofstream outFile;
-    std::deque<sample_T>& handle;
-    std::deque<nlohmann::json>& jsonHandle;
+    std::queue<sample_T>& handle;
+    std::queue<nlohmann::json>& jsonHandle;
     std::thread writerThread;
     std::shared_ptr<Measurement> measurement;
 
@@ -235,9 +240,9 @@ private:
         while(running) {
             if(dataPointsInSampleQue > 0) {
                 sample_T sample;
-                std::lock_guard<std::mutex> lock(handleMutex);
+                std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
-                handle.pop_front();
+                handle.pop();
 
                 outFile << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
                 const auto& optionalValues = std::get<2>(sample);
@@ -262,9 +267,9 @@ private:
             if(dataPointsInSampleQue > 0) {
                 int i = 0;
                 sample_T sample;
-                std::lock_guard<std::mutex> lock(handleMutex);
+                std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
-                handle.pop_front();
+                handle.pop();
 
                 outFile << "{\"timestamp\" : " << std::get<0>(sample) << ","<< "\"value\": [" << std::get<1>(sample);
                 if (i < measurement->uuids.size() -1) {
@@ -293,9 +298,9 @@ private:
         while(running) {
             if(dataPointsInSampleQue > 0) {
                 sample_T sample;
-                std::lock_guard<std::mutex> lock(handleMutex);
+                std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
-                handle.pop_front();
+                handle.pop();
 
                 std::cout << "\r[";
 
@@ -331,9 +336,9 @@ private:
                 if (dataPointsInSampleQue > 0) {
                     sample_T sample;
 
-                    std::lock_guard<std::mutex> lock(handleMutex);
+                    std::lock_guard<std::mutex> lock(sampleQueueMutex);
                     sample = handle.front();
-                    handle.pop_front();
+                    handle.pop();
 
                     // add sample to Json object
                     nlohmann::json sampleObject;
@@ -348,7 +353,7 @@ private:
                         }
                     }
 
-                    // push in JSON deque:
+                    // push in JSON queue:
 
                     currentBatch["data"].push_back(sampleObject);
                     batchCounter ++;
@@ -356,7 +361,7 @@ private:
 
                     if(batchCounter >= batchSize) {
                         std::lock_guard<std::mutex> lock(jsonMutex);
-                        jsonHandle.push_back(currentBatch);
+                        jsonHandle.push(currentBatch);
 
                         currentBatch["data"] = nlohmann::json::array();
                         batchCounter = 0;
@@ -398,7 +403,7 @@ private:
     }
 
 public:
-    Writer(std::shared_ptr<Measurement> measurement, std::deque<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::deque<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
+    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::queue<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
         :handle(handle), measurement(measurement), jsonHandle(jsonHandle) {
         std::cout << std::fixed << std::setprecision(3);
 
@@ -519,21 +524,21 @@ void resetDevices() {
 
 void clearAllDeques() {
 
-    if(!dataDeque.empty()) {
-        std::lock_guard<std::mutex> lock(handleMutex);
-        dataDeque.clear();
+    if(!sampleQueue.empty()) {
+        std::lock_guard<std::mutex> lock(sampleQueueMutex);
+        clearQueue(sampleQueue);
     }
-    if(!packageDeque.empty()) {
+    if(!wsPackagesQueue.empty()) {
         std::lock_guard<std::mutex> lock(jsonMutex);
-        packageDeque.clear();
+        clearQueue(wsPackagesQueue);
     }
 }
 
 void stopAndJoinWSConnectionThreads() {
     if(dataThreadActive) {
         dataThreadActive = false;
-        if(dequeThread.joinable()) {
-            dequeThread.join();
+        if(queueThread.joinable()) {
+            queueThread.join();
             if(verbose) {
                 std::cout << "dataThread joined" << std::endl;
             }
@@ -677,11 +682,11 @@ void printOrWriteData(std::shared_ptr<Measurement> measurement) {
             vectorSize = static_cast<int>(updatedDeviceData.size());
         }
 
-        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, dataDeque, dataPointsInSampleQue, measurement->samplingRate);
+        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
         delete dequeFormatter;
 
         if (startWriter) {
-            Writer* writi = new Writer(measurement, dataDeque, dataPointsInSampleQue, packageDeque, jsonMutex);
+            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, jsonMutex);
             startWriter = false;
         }
     }
@@ -835,7 +840,7 @@ void WSTest() {
         if(!measurement->uuids.empty()) {
             clearAllDeques();
 
-            dequeThread = std::thread(processDeque, std::ref(conn), measurement);
+            queueThread = std::thread(processDeque, std::ref(conn), measurement);
             dataThreadActive = true;
             if(verbose) {
                 conn.send_text("Sending data was started via the client.");
@@ -891,10 +896,10 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
     while (running && websocketConnectionActive) {
         std::lock_guard<std::mutex> lock(jsonMutex);
 
-        if (!packageDeque.empty()) {
+        if (!wsPackagesQueue.empty()) {
             nlohmann::ordered_json message;
-            message.update(packageDeque.front());
-            packageDeque.pop_front();
+            message.update(wsPackagesQueue.front());
+            wsPackagesQueue.pop();
 
             if (!measurement->uuids.empty()) {
                 message["devices"] = nlohmann::json::array();
@@ -912,3 +917,4 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
         std::cout << "Processdeque stopped" << std::endl;
     }
 }
+
