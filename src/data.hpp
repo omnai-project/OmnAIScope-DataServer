@@ -39,17 +39,17 @@ std::atomic<bool> running{true};
 bool verbose{false};
 std::queue<sample_T> sampleQueue;
 std::mutex sampleQueueMutex;
-std::mutex jsonMutex;
+std::mutex wsDataQueueMutex;
 nlohmann::json HeaderJSON;
 std::queue<nlohmann::json> wsPackagesQueue;
-std::thread queueThread;
-std::thread sendDataThread;
+std::thread wsDataQueueThread;
+std::thread sendDataviaWSThread;
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
-std::atomic<bool> dataThreadActive{false};
+std::atomic<bool> wsDataQueueThreadActive{false};
 std::atomic<bool> websocketConnectionActive{false};
 crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
-bool sendDataThreadActive = false;
+bool sendDataviaWSThreadActive = false;
 static std::atomic<int> dataPointsInSampleQue(0);
 static int Datenanzahl(0);
 
@@ -183,7 +183,7 @@ public:
         auto self = shared_from_this();
 
         if(self -> dataDestination == DataDestination::WS) {
-            while(sendDataThreadActive) {
+            while(sendDataviaWSThreadActive) {
                 searchDevices();   // Init Scopes
 
                 selectDevices(self->uuids);  // select only chosen devices
@@ -529,25 +529,25 @@ void clearAllDeques() {
         clearQueue(sampleQueue);
     }
     if(!wsPackagesQueue.empty()) {
-        std::lock_guard<std::mutex> lock(jsonMutex);
+        std::lock_guard<std::mutex> lock(wsDataQueueMutex);
         clearQueue(wsPackagesQueue);
     }
 }
 
 void stopAndJoinWSConnectionThreads() {
-    if(dataThreadActive) {
-        dataThreadActive = false;
-        if(queueThread.joinable()) {
-            queueThread.join();
+    if(wsDataQueueThreadActive) {
+        wsDataQueueThreadActive = false;
+        if(wsDataQueueThread.joinable()) {
+            wsDataQueueThread.join();
             if(verbose) {
                 std::cout << "dataThread joined" << std::endl;
             }
         }
     }
-    if(sendDataThreadActive) {
-        sendDataThreadActive = false;
-        if(sendDataThread.joinable()) {
-            sendDataThread.join();
+    if(sendDataviaWSThreadActive) {
+        sendDataviaWSThreadActive = false;
+        if(sendDataviaWSThread.joinable()) {
+            sendDataviaWSThread.join();
             if(verbose) {
                 std::cout << "sendDataThread joined" << std::endl;
             }
@@ -686,7 +686,7 @@ void printOrWriteData(std::shared_ptr<Measurement> measurement) {
         delete dequeFormatter;
 
         if (startWriter) {
-            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, jsonMutex);
+            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex);
             startWriter = false;
         }
     }
@@ -840,14 +840,14 @@ void WSTest() {
         if(!measurement->uuids.empty()) {
             clearAllDeques();
 
-            queueThread = std::thread(processDeque, std::ref(conn), measurement);
-            dataThreadActive = true;
+            wsDataQueueThread = std::thread(processDeque, std::ref(conn), measurement);
+            wsDataQueueThreadActive = true;
             if(verbose) {
                 conn.send_text("Sending data was started via the client.");
             }
 
-            sendDataThread = std::thread(&Measurement::start, measurement);
-            sendDataThreadActive = true;
+            sendDataviaWSThread = std::thread(&Measurement::start, measurement);
+            sendDataviaWSThreadActive = true;
             std::cout << "Measurement was set" << std::endl;
         }
     });
@@ -894,7 +894,7 @@ Measurement parseWSDataToMeasurement(const std::string& data) {
 
 void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement> measurement) {
     while (running && websocketConnectionActive) {
-        std::lock_guard<std::mutex> lock(jsonMutex);
+        std::lock_guard<std::mutex> lock(wsDataQueueMutex);
 
         if (!wsPackagesQueue.empty()) {
             nlohmann::ordered_json message;
