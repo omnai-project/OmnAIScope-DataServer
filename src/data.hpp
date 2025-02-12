@@ -42,6 +42,7 @@ std::mutex sampleQueueMutex;
 std::mutex wsDataQueueMutex;
 nlohmann::json HeaderJSON;
 std::queue<nlohmann::json> wsPackagesQueue;
+std::queue<std::string> wsCSVPackagesQueue;
 std::thread wsDataQueueThread;
 std::thread sendDataviaWSThread;
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
@@ -210,6 +211,7 @@ private:
     std::ofstream outFile;
     std::queue<sample_T>& handle;
     std::queue<nlohmann::json>& jsonHandle;
+    std::queue<std::string> & csvHandle;
     std::thread writerThread;
     std::shared_ptr<Measurement> measurement;
 
@@ -371,20 +373,70 @@ private:
             }
         }
     }
+    void write_CsvBatch(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex)
+    {
+        std::string currentBatch; 
+        int batchSize = 1;
+        int batchCounter = 0;
+
+        while (running) {
+            if (websocketConnectionActive) {
+                if (dataPointsInSampleQue > 0) {
+                    sample_T sample;
+                    std::lock_guard<std::mutex> lock(sampleQueueMutex);
+                    sample = handle.front();
+                    handle.pop();
+
+                    std::ostringstream oss;
+                    oss << std::fixed << std::setprecision(3);
+
+                    oss << std::get<0>(sample) << ", " << std::get<1>(sample);
+
+                    const auto& optionalValues = std::get<2>(sample);
+                    if (optionalValues.has_value()) {
+                        for (const auto& val : optionalValues.value()) {
+                            oss << ", " << val;
+                        }
+                    }
+
+                    oss << "\n";
+                    std::string sampleLine = oss.str();
+                    currentBatch += sampleLine; 
+                    ++batchCounter;
+                    --dataPointsInSampleQue;
+
+                    if (batchCounter >= batchSize) {
+                        std::lock_guard<std::mutex> lock(jsonMutex);
+                        csvHandle.push(currentBatch);
+                        currentBatch.clear();
+                        batchCounter = 0;
+                    }
+                    ++Datenanzahl;
+                }
+            }
+        }
+
+        if (!currentBatch.empty()) {
+            std::lock_guard<std::mutex> lock(jsonMutex);
+            csvHandle.push(currentBatch);
+        }
+    }
 
     void write(std::atomic<int> &dataPointsInSampleQue, std::mutex& jsonMutex) {
 
         if(verbose) {
             std::cout << "Writer startet" << std::endl;
         }
-        // seperate for data destination
         if(measurement->dataDestination == DataDestination::WS) {
-            write_JsonObject(dataPointsInSampleQue, jsonMutex);
+            if(measurement->format == FormatType::JSON) {
+                write_JsonObject(dataPointsInSampleQue, jsonMutex);
+            }
+            else if (measurement->format == FormatType::CSV) {
+                write_CsvBatch(dataPointsInSampleQue, jsonMutex);
+            }
         }
         else if (measurement->dataDestination == DataDestination::LOCALFILE) {
-            // Write into a file
             if(!measurement->filePath.empty()) {
-                // choose format
                 if(measurement->format == FormatType::CSV) {
                     write_csv(dataPointsInSampleQue);
                 }
@@ -403,8 +455,8 @@ private:
     }
 
 public:
-    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::queue<nlohmann::json>& jsonHandle, std::mutex &jsonMutex)
-        :handle(handle), measurement(measurement), jsonHandle(jsonHandle) {
+    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::queue<nlohmann::json>& jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle)
+        :handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle) {
         std::cout << std::fixed << std::setprecision(3);
 
         // Seperation by data destination
@@ -686,7 +738,7 @@ void printOrWriteData(std::shared_ptr<Measurement> measurement) {
         delete dequeFormatter;
 
         if (startWriter) {
-            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex);
+            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue);
             startWriter = false;
         }
     }
@@ -868,17 +920,15 @@ Measurement parseWSDataToMeasurement(const std::string& data) {
     bool foundSamplingRate = false;
 
     while (iss >> token) {
-        // Prüfen, ob das Token mit "E" beginnt → UUID
+        // Check if token is uuid
         if (!token.empty() && token[0] == 'E') {
             measurement.uuids.push_back(token);
         }
-        // Prüfen, ob das Token eine Zahl ist → Sampling Rate
-        else if (std::all_of(token.begin(), token.end(), ::isdigit)) {
+        else if (std::all_of(token.begin(), token.end(), ::isdigit)) { //check if token is number
             measurement.samplingRate = std::stoi(token);
             foundSamplingRate = true;
         }
-        // Prüfen, ob das Token ein gültiges Format ist → Format setzen
-        else if (token == "csv") {
+        else if (token == "csv") { // check if token is a format
             measurement.format = FormatType::CSV;
         }
         else if (token == "json") {
@@ -894,22 +944,30 @@ Measurement parseWSDataToMeasurement(const std::string& data) {
 
 void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement> measurement) {
     while (running && websocketConnectionActive) {
-        std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+        if (measurement->format == FormatType::JSON) {
+            std::cout << "Format ist json" << std::endl;
+            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+            if (!wsPackagesQueue.empty()) {
+                nlohmann::ordered_json message;
+                message.update(wsPackagesQueue.front());
+                wsPackagesQueue.pop();
 
-        if (!wsPackagesQueue.empty()) {
-            nlohmann::ordered_json message;
-            message.update(wsPackagesQueue.front());
-            wsPackagesQueue.pop();
-
-            if (!measurement->uuids.empty()) {
-                message["devices"] = nlohmann::json::array();
-                for (const auto& uuid : measurement->uuids) {
-                    message["devices"].push_back(uuid);
+                if (!measurement->uuids.empty()) {
+                    message["devices"] = nlohmann::json::array();
+                    for (const auto& uuid : measurement->uuids) {
+                        message["devices"].push_back(uuid);
+                    }
                 }
+                conn.send_text(message.dump());
             }
-
-            // Sende das JSON über den WebSocket
-            conn.send_text(message.dump());
+        }
+        else if (measurement->format == FormatType::CSV) {
+            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+            if (!wsCSVPackagesQueue.empty()) {
+                std::string csvBatch = wsCSVPackagesQueue.front();
+                wsCSVPackagesQueue.pop();
+                conn.send_text(csvBatch);
+            }
         }
     }
 
@@ -917,4 +975,5 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
         std::cout << "Processdeque stopped" << std::endl;
     }
 }
+
 
