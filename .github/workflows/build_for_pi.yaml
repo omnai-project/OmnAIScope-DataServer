@@ -2,8 +2,8 @@ name: Build on Raspberry Pi
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - workflow-test
 
 jobs:
   build:
