@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - workflow-test
+#    tags:
+#      - 'v*.*.*'
 
 jobs:
   build:
@@ -32,16 +34,21 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential cmake autoconf libudev-dev automake autoconf-archive
+          sudo apt install -y build-essential cmake autoconf libudev-dev automake autoconf-archive ninja-build gcc g++
 
       - name: Set VCPKG Environment Variable
         run: echo "VCPKG_FORCE_SYSTEM_BINARIES=1" >> $GITHUB_ENV
+
+      - name: Set Compiler Variables
+        run: |
+          echo "CC=gcc" >> $GITHUB_ENV
+          echo "CXX=g++" >> $GITHUB_ENV
 
       - name: Configure CMake
         run: |
           mkdir -p build
           cd build
-          cmake ..
+          cmake .. -G Ninja -DCMAKE_MAKE_PROGRAM=ninja
 
       - name: Build Project
         run: |
