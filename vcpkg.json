@@ -13,7 +13,8 @@
         "boost-filesystem",
         "boost-regex",
         "openssl",
-        "crow"
+        "crow", 
+        "protobuf"       
     ]
 }
 

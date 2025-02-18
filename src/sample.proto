@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+message Sample {
+  double timestamp = 1; 
+  repeated double values = 2; 
+}
+
