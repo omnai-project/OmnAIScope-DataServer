@@ -53,9 +53,9 @@ wscat -c ws://127.0.0.1:8080/ws
 Step 4: Start the measurement
 To start the measurement the client has to send the UUIDs to the websocket via 
 ```
-<UUID1> <UUID2> ... <optional:Sample Rate>
+<UUID1> <UUID2> ... <optional:Sample Rate> <optional:format>
 ```
-At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. 
+At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default format is json. 
 You will receive data in a json format from the chosen devices with the set sample rate. 
 
 # Setting Up and Building the MiniOmni Project

@@ -2,6 +2,9 @@
 
 
 int main(int argc, char **argv) {
+
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
+
     std::signal(SIGINT, customSignalHandler);
 
     running = true;

@@ -16,6 +16,7 @@
 #include <csignal>
 #include "crow.h"
 #include "crow/middlewares/cors.h"
+#include "sample.pb.h"
 
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -43,6 +44,7 @@ std::mutex wsDataQueueMutex;
 nlohmann::json HeaderJSON;
 std::queue<nlohmann::json> wsPackagesQueue;
 std::queue<std::string> wsCSVPackagesQueue;
+std::queue<std::string> wsBinaryPackagesQueue;
 std::thread wsDataQueueThread;
 std::thread sendDataviaWSThread;
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
@@ -53,6 +55,7 @@ std::thread websocket;
 bool sendDataviaWSThreadActive = false;
 static std::atomic<int> dataPointsInSampleQue(0);
 static int Datenanzahl(0);
+static bool startWriter = true;
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -212,6 +215,7 @@ private:
     std::queue<sample_T>& handle;
     std::queue<nlohmann::json>& jsonHandle;
     std::queue<std::string> & csvHandle;
+    std::queue<std::string> & binaryHandle;
     std::thread writerThread;
     std::shared_ptr<Measurement> measurement;
 
@@ -333,8 +337,7 @@ private:
 
         int batchCounter = 0;
 
-        while(running) {
-            if(websocketConnectionActive) {
+        while (websocketConnectionActive) {
                 if (dataPointsInSampleQue > 0) {
                     sample_T sample;
 
@@ -370,17 +373,15 @@ private:
                     }
                     Datenanzahl++;
                 }
-            }
         }
     }
     void write_CsvBatch(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex)
     {
-        std::string currentBatch; 
+        std::string currentBatch;
         int batchSize = 1;
         int batchCounter = 0;
 
-        while (running) {
-            if (websocketConnectionActive) {
+        while (websocketConnectionActive) {
                 if (dataPointsInSampleQue > 0) {
                     sample_T sample;
                     std::lock_guard<std::mutex> lock(sampleQueueMutex);
@@ -401,7 +402,7 @@ private:
 
                     oss << "\n";
                     std::string sampleLine = oss.str();
-                    currentBatch += sampleLine; 
+                    currentBatch += sampleLine;
                     ++batchCounter;
                     --dataPointsInSampleQue;
 
@@ -413,7 +414,6 @@ private:
                     }
                     ++Datenanzahl;
                 }
-            }
         }
 
         if (!currentBatch.empty()) {
@@ -421,6 +421,46 @@ private:
             csvHandle.push(currentBatch);
         }
     }
+
+    void write_ProtobufSamples(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex) {
+        while (websocketConnectionActive) {
+                if (dataPointsInSampleQue > 0) {
+                    sample_T sample;
+                    {
+                        std::lock_guard<std::mutex> lock(sampleQueueMutex);
+                        sample = handle.front();
+                        handle.pop();
+                    }
+
+                    Sample sampleMsg;
+                    sampleMsg.set_timestamp(std::get<0>(sample));
+
+                    sampleMsg.add_values(std::get<1>(sample));
+
+                    const auto& optValues = std::get<2>(sample);
+                    if (optValues) {
+                        for (const auto& val : *optValues) {
+                            sampleMsg.add_values(val);
+                        }
+                    }
+
+                    std::string serializedSample;
+                    if (!sampleMsg.SerializeToString(&serializedSample)) {
+                        std::cerr << "Protobuf-Serialisierung fehlgeschlagen!" << std::endl;
+                        continue;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(jsonMutex);
+                        binaryHandle.push(serializedSample);
+                    }
+
+                    --dataPointsInSampleQue;
+                    ++Datenanzahl;
+                }
+        }
+    }
+
 
     void write(std::atomic<int> &dataPointsInSampleQue, std::mutex& jsonMutex) {
 
@@ -433,6 +473,9 @@ private:
             }
             else if (measurement->format == FormatType::CSV) {
                 write_CsvBatch(dataPointsInSampleQue, jsonMutex);
+            }
+            else if(measurement->format == FormatType::BINARY) {
+                write_ProtobufSamples(dataPointsInSampleQue, jsonMutex);
             }
         }
         else if (measurement->dataDestination == DataDestination::LOCALFILE) {
@@ -455,8 +498,8 @@ private:
     }
 
 public:
-    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::queue<nlohmann::json>& jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle)
-        :handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle) {
+    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::queue<nlohmann::json>& jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
+        :handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle) {
         std::cout << std::fixed << std::setprecision(3);
 
         // Seperation by data destination
@@ -557,6 +600,7 @@ void CloseWSConnection() {
     // std::cout << "CloseWSConnectionStarted" << std::endl;
     stopAndJoinWSConnectionThreads();
     resetDevices();
+    startWriter = true;
 }
 
 void resetDevices() {
@@ -583,6 +627,14 @@ void clearAllDeques() {
     if(!wsPackagesQueue.empty()) {
         std::lock_guard<std::mutex> lock(wsDataQueueMutex);
         clearQueue(wsPackagesQueue);
+    }
+    if(!wsBinaryPackagesQueue.empty()) {
+        std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+        clearQueue(wsBinaryPackagesQueue);
+    }
+    if(!wsCSVPackagesQueue.empty()) {
+        std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+        clearQueue(wsCSVPackagesQueue);
     }
 }
 
@@ -703,19 +755,6 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
 //DATAHANDELING///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void printOrWriteData(std::shared_ptr<Measurement> measurement) {
-    static bool startWriter = true;
-    std::string stringFormat;
-    bool isWS = false;
-
-    if (measurement->dataDestination == DataDestination::WS) {
-        isWS = true;
-    }
-
-    if (measurement->format == FormatType::JSON) {
-        stringFormat = "json";
-    } else {
-        stringFormat = "csv";
-    }
 
     if (sampler.has_value()) {
         captureData.clear();
@@ -738,7 +777,7 @@ void printOrWriteData(std::shared_ptr<Measurement> measurement) {
         delete dequeFormatter;
 
         if (startWriter) {
-            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue);
+            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
             startWriter = false;
         }
     }
@@ -967,6 +1006,14 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
                 std::string csvBatch = wsCSVPackagesQueue.front();
                 wsCSVPackagesQueue.pop();
                 conn.send_text(csvBatch);
+            }
+        }
+        else if (measurement->format == FormatType::BINARY) {
+            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+            if (!wsBinaryPackagesQueue.empty()) {
+                std::string binaryBatch = wsBinaryPackagesQueue.front();
+                wsBinaryPackagesQueue.pop();
+                conn.send_binary(binaryBatch);
             }
         }
     }

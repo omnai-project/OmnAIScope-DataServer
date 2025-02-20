@@ -58,7 +58,8 @@ include(cmake_helpers/FindOrFetch.cmake)
 add_subdirectory(${cli11_SOURCE_DIR} ${cli11_BINARY_DIR})
 
 add_executable(MiniOmni
-               src/data.cpp)
+               src/data.cpp
+               src/sample.pb.cc)
 
 #target_add_default_build_options(MiniOmni PUBLIC)
 
@@ -84,6 +85,7 @@ target_link_libraries(MiniOmni PRIVATE Crow::Crow)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)
 
+
 target_link_libraries(MiniOmni PRIVATE PkgConfig::libusb)
 
 find_package(fmt CONFIG REQUIRED)
@@ -96,6 +98,9 @@ target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
+
+find_package(protobuf REQUIRED)
+target_link_libraries(MiniOmni PRIVATE protobuf::libprotobuf)
 
 target_compile_definitions(MiniOmni PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
 
