@@ -58,6 +58,8 @@ To start the measurement the client has to send the UUIDs to the websocket via
 At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default format is json. 
 You will receive data in a json format from the chosen devices with the set sample rate. 
 
+The API documentation can be found under : https://github.com/AI-Gruppe/ai-internal_omnai_backend2.0_api_doc 
+
 # Setting Up and Building the MiniOmni Project
 
 This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as on Rasberry Pi devices running ARM architecture. 
