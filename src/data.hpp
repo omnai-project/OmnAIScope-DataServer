@@ -337,8 +337,7 @@ private:
 
         int batchCounter = 0;
 
-        while(running) {
-            if(websocketConnectionActive) {
+        while (websocketConnectionActive) {
                 if (dataPointsInSampleQue > 0) {
                     sample_T sample;
 
@@ -374,7 +373,6 @@ private:
                     }
                     Datenanzahl++;
                 }
-            }
         }
     }
     void write_CsvBatch(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex)
@@ -383,8 +381,7 @@ private:
         int batchSize = 1;
         int batchCounter = 0;
 
-        while (running) {
-            if (websocketConnectionActive) {
+        while (websocketConnectionActive) {
                 if (dataPointsInSampleQue > 0) {
                     sample_T sample;
                     std::lock_guard<std::mutex> lock(sampleQueueMutex);
@@ -417,7 +414,6 @@ private:
                     }
                     ++Datenanzahl;
                 }
-            }
         }
 
         if (!currentBatch.empty()) {
@@ -427,8 +423,7 @@ private:
     }
 
     void write_ProtobufSamples(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex) {
-        while (running) {
-            if (websocketConnectionActive) {
+        while (websocketConnectionActive) {
                 if (dataPointsInSampleQue > 0) {
                     sample_T sample;
                     {
@@ -463,7 +458,6 @@ private:
                     --dataPointsInSampleQue;
                     ++Datenanzahl;
                 }
-            }
         }
     }
 
