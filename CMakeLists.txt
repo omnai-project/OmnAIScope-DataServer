@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
+set(PROJECT_NAME "MiniOmni")
+
 include(FetchContent)
 FetchContent_Populate(
   vcpkg
@@ -38,7 +40,7 @@ set(CMAKE_TOOLCHAIN_FILE "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake" 
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -frtti")
 
-project("MiniOmni" VERSION 0.0.1)
+project(${PROJECT_NAME} VERSION 0.0.1)
 
 if(MSVC)
     add_compile_options(
@@ -57,7 +59,7 @@ include(cmake_helpers/FindOrFetch.cmake)
 
 add_subdirectory(${cli11_SOURCE_DIR} ${cli11_BINARY_DIR})
 
-add_executable(MiniOmni
+add_executable(${PROJECT_NAME}
                src/data.cpp
                src/sample.pb.cc)
 
@@ -68,40 +70,35 @@ find_or_fetch_package(
   https://github.com/dominicpoeschko/cmake_git_version.git GIT_TAG master)
 
 add_subdirectory(aglio)
-target_link_libraries(MiniOmni PUBLIC aglio::aglio)
+target_link_libraries(${PROJECT_NAME} PUBLIC aglio::aglio)
 
 find_package(Boost REQUIRED COMPONENTS system thread filesystem asio regex)
-target_include_directories(MiniOmni PRIVATE ${Boost_INCLUDE_DIRS})
-target_link_libraries(MiniOmni PRIVATE Boost::asio Boost::system Boost::thread Boost::filesystem Boost::regex)
-#target_compile_definitions(MiniOmni PUBLIC ASIO_STANDALONE=0)
-#target_compile_definitions(MiniOmni PUBLIC BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+target_include_directories(${PROJECT_NAME} PRIVATE ${Boost_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} PRIVATE Boost::asio Boost::system Boost::thread Boost::filesystem Boost::regex)
 
 find_package(OpenSSL REQUIRED)
-target_link_libraries(MiniOmni PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 find_package(Crow CONFIG REQUIRED)
-target_link_libraries(MiniOmni PRIVATE Crow::Crow)
+target_link_libraries(${PROJECT_NAME} PRIVATE Crow::Crow)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(libusb REQUIRED IMPORTED_TARGET libusb-1.0)
 
 
-target_link_libraries(MiniOmni PRIVATE PkgConfig::libusb)
+target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::libusb)
 
 find_package(fmt CONFIG REQUIRED)
-target_link_libraries(MiniOmni PUBLIC fmt::fmt-header-only)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt-header-only)
 
-target_link_libraries(MiniOmni PRIVATE CLI11::CLI11)
-#target_include_directories(MiniOmni PRIVATE ${CLI11_SOURCE_DIR}/include)
-#find_package(CLI11 CONFIG REQUIRED)
-#target_link_libraries(MiniOmni PUBLIC CLI11::CLI11)
+target_link_libraries(${PROJECT_NAME} PRIVATE CLI11::CLI11)
 
 find_package(nlohmann_json CONFIG REQUIRED)
-target_link_libraries(MiniOmni PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
 find_package(protobuf REQUIRED)
-target_link_libraries(MiniOmni PRIVATE protobuf::libprotobuf)
+target_link_libraries(${PROJECT_NAME} PRIVATE protobuf::libprotobuf)
 
-target_compile_definitions(MiniOmni PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
+target_compile_definitions(${PROJECT_NAME} PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
 
-target_compile_features(MiniOmni PUBLIC cxx_std_23)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
