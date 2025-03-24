@@ -124,15 +124,15 @@ private:
             }
 
             // values from first device
-            timeStamp = round_to(firstDeviceData[currentPosition].first, 3);
-            firstX = round_to(firstDeviceData[currentPosition].second, 3);
+            timeStamp = round_to(firstDeviceData[currentPosition].first, 5);
+            firstX = round_to(firstDeviceData[currentPosition].second, 5);
 
             // values from other devices
             otherX = std::vector<val_T>();
             for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
                 const auto& deviceData = it->second;
                 if (currentPosition < deviceData.size()) {
-                    otherX->push_back(round_to(deviceData[currentPosition].second,3));
+                    otherX->push_back(round_to(deviceData[currentPosition].second,5));
                 }
             }
 
