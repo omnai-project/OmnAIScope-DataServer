@@ -27,7 +27,7 @@ The CLI-Tool includes the following functionalities:
 
 ### How to use the Websocket: 
 
-The websocket currently can be used in a client-based setup. 
+The websocket currently can be used in a client-based setup. The Websocket is running on a port between 8080 and 8170 depending on which port is available. It starts with 8080 and then counts up.  
 
 2. Using the Websocket in a Client-based Setup 
 
@@ -41,13 +41,13 @@ Run the Websocket in the backend without specifying any UUIDS with the command :
 Step 2: Retrieve UUIDS via REST API 
 On the client side, request the available UUIDs by accessing the REST API endpoint:
 ```
-http://<ip>:8080/UUID
+http://<ip>:<port>/UUID
 ```
 
 Step 3: Connect to the WS 
 Establish a WS connection via
 ```
-wscat -c ws://127.0.0.1:8080/ws
+wscat -c ws://<ip>:<port>/ws
 ```
 
 Step 4: Start the measurement
