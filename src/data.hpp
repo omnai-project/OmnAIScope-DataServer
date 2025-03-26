@@ -82,6 +82,8 @@ void clearQueue(std::queue<T, Container>& q) {
     std::queue<T, Container> empty;
     std::swap(q, empty);
 };
+bool is_port_available(unsigned short &);
+unsigned short find_free_port(unsigned short);
 
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -338,41 +340,41 @@ private:
         int batchCounter = 0;
 
         while (websocketConnectionActive) {
-                if (dataPointsInSampleQue > 0) {
-                    sample_T sample;
+            if (dataPointsInSampleQue > 0) {
+                sample_T sample;
 
-                    std::lock_guard<std::mutex> lock(sampleQueueMutex);
-                    sample = handle.front();
-                    handle.pop();
+                std::lock_guard<std::mutex> lock(sampleQueueMutex);
+                sample = handle.front();
+                handle.pop();
 
-                    // add sample to Json object
-                    nlohmann::json sampleObject;
-                    sampleObject["timestamp"] = std::get<0>(sample);
-                    sampleObject["value"] = nlohmann::json::array();
-                    sampleObject["value"].push_back(std::get<1>(sample));
+                // add sample to Json object
+                nlohmann::json sampleObject;
+                sampleObject["timestamp"] = std::get<0>(sample);
+                sampleObject["value"] = nlohmann::json::array();
+                sampleObject["value"].push_back(std::get<1>(sample));
 
-                    const auto& optionalValues = std::get<2>(sample);
-                    if(optionalValues) {
-                        for (size_t i = 0; i < optionalValues->size(); ++i) {
-                            sampleObject["value"].push_back((*optionalValues)[i]);
-                        }
+                const auto& optionalValues = std::get<2>(sample);
+                if(optionalValues) {
+                    for (size_t i = 0; i < optionalValues->size(); ++i) {
+                        sampleObject["value"].push_back((*optionalValues)[i]);
                     }
-
-                    // push in JSON queue:
-
-                    currentBatch["data"].push_back(sampleObject);
-                    batchCounter ++;
-                    dataPointsInSampleQue --;
-
-                    if(batchCounter >= batchSize) {
-                        std::lock_guard<std::mutex> lock(jsonMutex);
-                        jsonHandle.push(currentBatch);
-
-                        currentBatch["data"] = nlohmann::json::array();
-                        batchCounter = 0;
-                    }
-                    Datenanzahl++;
                 }
+
+                // push in JSON queue:
+
+                currentBatch["data"].push_back(sampleObject);
+                batchCounter ++;
+                dataPointsInSampleQue --;
+
+                if(batchCounter >= batchSize) {
+                    std::lock_guard<std::mutex> lock(jsonMutex);
+                    jsonHandle.push(currentBatch);
+
+                    currentBatch["data"] = nlohmann::json::array();
+                    batchCounter = 0;
+                }
+                Datenanzahl++;
+            }
         }
     }
     void write_CsvBatch(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex)
@@ -382,38 +384,38 @@ private:
         int batchCounter = 0;
 
         while (websocketConnectionActive) {
-                if (dataPointsInSampleQue > 0) {
-                    sample_T sample;
-                    std::lock_guard<std::mutex> lock(sampleQueueMutex);
-                    sample = handle.front();
-                    handle.pop();
+            if (dataPointsInSampleQue > 0) {
+                sample_T sample;
+                std::lock_guard<std::mutex> lock(sampleQueueMutex);
+                sample = handle.front();
+                handle.pop();
 
-                    std::ostringstream oss;
-                    oss << std::fixed << std::setprecision(3);
+                std::ostringstream oss;
+                oss << std::fixed << std::setprecision(3);
 
-                    oss << std::get<0>(sample) << ", " << std::get<1>(sample);
+                oss << std::get<0>(sample) << ", " << std::get<1>(sample);
 
-                    const auto& optionalValues = std::get<2>(sample);
-                    if (optionalValues.has_value()) {
-                        for (const auto& val : optionalValues.value()) {
-                            oss << ", " << val;
-                        }
+                const auto& optionalValues = std::get<2>(sample);
+                if (optionalValues.has_value()) {
+                    for (const auto& val : optionalValues.value()) {
+                        oss << ", " << val;
                     }
-
-                    oss << "\n";
-                    std::string sampleLine = oss.str();
-                    currentBatch += sampleLine;
-                    ++batchCounter;
-                    --dataPointsInSampleQue;
-
-                    if (batchCounter >= batchSize) {
-                        std::lock_guard<std::mutex> lock(jsonMutex);
-                        csvHandle.push(currentBatch);
-                        currentBatch.clear();
-                        batchCounter = 0;
-                    }
-                    ++Datenanzahl;
                 }
+
+                oss << "\n";
+                std::string sampleLine = oss.str();
+                currentBatch += sampleLine;
+                ++batchCounter;
+                --dataPointsInSampleQue;
+
+                if (batchCounter >= batchSize) {
+                    std::lock_guard<std::mutex> lock(jsonMutex);
+                    csvHandle.push(currentBatch);
+                    currentBatch.clear();
+                    batchCounter = 0;
+                }
+                ++Datenanzahl;
+            }
         }
 
         if (!currentBatch.empty()) {
@@ -424,40 +426,40 @@ private:
 
     void write_ProtobufSamples(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex) {
         while (websocketConnectionActive) {
-                if (dataPointsInSampleQue > 0) {
-                    sample_T sample;
-                    {
-                        std::lock_guard<std::mutex> lock(sampleQueueMutex);
-                        sample = handle.front();
-                        handle.pop();
-                    }
-
-                    Sample sampleMsg;
-                    sampleMsg.set_timestamp(std::get<0>(sample));
-
-                    sampleMsg.add_values(std::get<1>(sample));
-
-                    const auto& optValues = std::get<2>(sample);
-                    if (optValues) {
-                        for (const auto& val : *optValues) {
-                            sampleMsg.add_values(val);
-                        }
-                    }
-
-                    std::string serializedSample;
-                    if (!sampleMsg.SerializeToString(&serializedSample)) {
-                        std::cerr << "Protobuf-Serialisierung fehlgeschlagen!" << std::endl;
-                        continue;
-                    }
-
-                    {
-                        std::lock_guard<std::mutex> lock(jsonMutex);
-                        binaryHandle.push(serializedSample);
-                    }
-
-                    --dataPointsInSampleQue;
-                    ++Datenanzahl;
+            if (dataPointsInSampleQue > 0) {
+                sample_T sample;
+                {
+                    std::lock_guard<std::mutex> lock(sampleQueueMutex);
+                    sample = handle.front();
+                    handle.pop();
                 }
+
+                Sample sampleMsg;
+                sampleMsg.set_timestamp(std::get<0>(sample));
+
+                sampleMsg.add_values(std::get<1>(sample));
+
+                const auto& optValues = std::get<2>(sample);
+                if (optValues) {
+                    for (const auto& val : *optValues) {
+                        sampleMsg.add_values(val);
+                    }
+                }
+
+                std::string serializedSample;
+                if (!sampleMsg.SerializeToString(&serializedSample)) {
+                    std::cerr << "Protobuf-Serialisierung fehlgeschlagen!" << std::endl;
+                    continue;
+                }
+
+                {
+                    std::lock_guard<std::mutex> lock(jsonMutex);
+                    binaryHandle.push(serializedSample);
+                }
+
+                --dataPointsInSampleQue;
+                ++Datenanzahl;
+            }
         }
     }
 
@@ -868,6 +870,8 @@ double round_to(double value, int decimals) {
     return std::round(value * factor) / factor;
 }
 
+/// WEBSOCKET HANDLING ///////////////////////////////////////////////////////////////////////////////////////////////////
+
 void WSTest() {
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
@@ -875,6 +879,9 @@ void WSTest() {
     bool json_temp = false;
     bool ws_temp = true;
     std::string file_temp = " ";
+
+    unsigned short start_port = 8080;
+    unsigned short port = find_free_port(start_port); // PORT HANDELING
 
     auto& cors = crowApp.get_middleware<crow::CORSHandler>();
 
@@ -889,14 +896,14 @@ void WSTest() {
     WEBSOCKET_ACTIVE = true;
 
     // API
-    CROW_ROUTE(crowApp, "/UUID") // HTTP GET auf "/hello"
+    CROW_ROUTE(crowApp, "/UUID") // Get UUIDS
     ([]() {
         searchDevices();
         nlohmann::json devicesJson = getDevicesAsJson();
         return crow::response(devicesJson.dump());
     });
 
-    CROW_ROUTE(crowApp, "/help") // HTTP GET auf "/hello"
+    CROW_ROUTE(crowApp, "/help") // GET HELP
     ([]() {
         return std::string("Starting the websocket under ip/ws. Set one or multiply UUIDs by writing them after the hello message. \n")
                + "The last input can be a sampling rate. The default sampling Rate is 60 Sa/s.\n"
@@ -946,7 +953,7 @@ void WSTest() {
     crowApp.signal_clear();
     std::signal(SIGINT, customSignalHandler);
 
-    crowApp.port(8080).multithreaded().run();
+    crowApp.port(port).multithreaded().run();
 }
 
 Measurement parseWSDataToMeasurement(const std::string& data) {
@@ -1021,6 +1028,31 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
     if (verbose) {
         std::cout << "Processdeque stopped" << std::endl;
     }
+}
+
+/// WS : PORT HANDELING ////////////////////////////////
+
+bool is_port_available(unsigned short &port) {
+    using boost::asio::ip::tcp;
+    boost::asio::io_context io_context;
+
+    try {
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+        return true;
+    } catch (const boost::system::system_error&) {
+        return false;
+    }
+}
+
+unsigned short find_free_port(unsigned short start_port) {
+    unsigned short max_attempts = 90;
+    for (unsigned short i = 0; i < max_attempts; ++i) {
+        unsigned short port = start_port + i;
+        if (is_port_available(port)) {
+            return port;
+        }
+    }
+    throw std::runtime_error("No available ports found in range.");
 }
 
 
