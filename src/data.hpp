@@ -586,7 +586,6 @@ void customSignalHandler(int signal) {
 }
 
 void ExitProgramm() {
-    std::cout << "Anzahl gesendeter Daten:" << Datenanzahl << std::endl;
     if(WEBSOCKET_ACTIVE) {
         crowApp.stop();
     }
@@ -868,7 +867,9 @@ double round_to(double value, int decimals) {
     return std::round(value * factor) / factor;
 }
 
-void WSTest() {
+/// WEBSOCKET HANDLING ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+void StartWS(int &port) {
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
     std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
@@ -1022,5 +1023,4 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
         std::cout << "Processdeque stopped" << std::endl;
     }
 }
-
 

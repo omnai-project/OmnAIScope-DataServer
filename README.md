@@ -22,6 +22,7 @@ The CLI-Tool includes the following functionalities:
 -o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.
 -j, --json Changes the output file format to JSON. 
 -w, --websocket Opens a Websocket, as well as a REST API. 
+-p, --port Set a port for the Websocket to start on. 
 -v, --verbose Prints out additional information about the software's process.
 --version Prints out the current SW version 
 
