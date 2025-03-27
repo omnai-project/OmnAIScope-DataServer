@@ -5,7 +5,7 @@ The MiniOmni Project is a temporary project aimed at developing a Minimum Viable
 The MiniOmni Project currently offers the following features:
 
 - CLI Tool: Enables data retrieval from multiple OmnAIScopes via a command-line interface, with the ability to output data in various formats. (Details can be found in the section "CLI Tool Usage.")
-Via the CLI Tool a websocket can be started on Port 8080 of the used device. (Details can be found in the section "CLI Tool Usage.")
+Via the CLI Tool a websocket can be started a chosen port of the used device. (Details can be found in the section "CLI Tool Usage.")
 
 
 # CLI-Tool Usage 
@@ -42,13 +42,13 @@ Run the Websocket in the backend without specifying any UUIDS with the command :
 Step 2: Retrieve UUIDS via REST API 
 On the client side, request the available UUIDs by accessing the REST API endpoint:
 ```
-http://<ip>:8080/UUID
+http://<ip>:<port>/UUID
 ```
 
 Step 3: Connect to the WS 
 Establish a WS connection via
 ```
-wscat -c ws://127.0.0.1:8080/ws
+wscat -c ws://<ip>:<port>/ws
 ```
 
 Step 4: Start the measurement
