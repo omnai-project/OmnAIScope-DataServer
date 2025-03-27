@@ -30,6 +30,9 @@ int main(int argc, char **argv) {
     bool WS = false;
     app.add_flag("-w,--websocket", WS, "Starts the websocket. To send data a UUID has to be given");
 
+    int port = 0;
+    app.add_option("-p, --port", port, "Sets the port for the websocket to start on.");
+
     bool printVersion = false;
     app.add_flag("--version", printVersion, "Prints the current version. Version is set via a git tag.");
 
@@ -50,13 +53,22 @@ int main(int argc, char **argv) {
         running = false;
     }
 
-    if(search) { // search for devices and print the UUID
+    if(port != 0 && WS == false ) {
+        std::cout << "You cant set a port if you dont start the websocket. Usage: Programm -w -p <port> ." << std::endl;
+        running = false;
+    }
+    if(port == 0 && WS == true ) {
+        std::cout << "You cant use a websocket without setting a port. Usage: Programm -w -p <port> ." << std::endl;
+        running = false;
+    }
+
+    if(search && running) { // search for devices and print the UUID
         searchDevices();
         printDevices();
     }
 
-    if(WS) {
-        websocket = std::thread(WSTest);
+    if(WS && running) {
+        websocket = std::thread(StartWS, std::ref(port));
     }
 
     DataDestination destination = DataDestination::WS;
