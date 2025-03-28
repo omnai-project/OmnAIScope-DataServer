@@ -102,3 +102,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE protobuf::libprotobuf)
 target_compile_definitions(${PROJECT_NAME} PRIVATE BOOST_ASIO_ENABLE_HANDLER_TRACKING)
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
+target_link_libraries(${PROJECT_NAME} PUBLIC libscope.a)
+target_link_libraries(${PROJECT_NAME} PUBLIC -L./)

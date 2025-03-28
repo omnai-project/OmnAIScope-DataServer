@@ -1,10 +1,12 @@
 //#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
+#include "fmt/format.h"
+
 #include <boost/asio.hpp>
 #include <iostream>
 #include <chrono>
 #include <thread>
 #include <atomic>
-#include "../ai_omniscope-v2-communication_sw/src/OmniscopeSampler.hpp"
+#include "OmniscopeSampler.hpp"
 #include "CLI/CLI.hpp"
 #include <tuple>
 #include <functional>
