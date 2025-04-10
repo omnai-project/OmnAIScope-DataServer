@@ -947,7 +947,7 @@ void StartWS(int &port) {
     crowApp.signal_clear();
     std::signal(SIGINT, customSignalHandler);
 
-    crowApp.port(8080).multithreaded().run();
+    crowApp.port(port).multithreaded().run();
 }
 
 Measurement parseWSDataToMeasurement(const std::string& data) {
