@@ -869,6 +869,29 @@ double round_to(double value, int decimals) {
 
 /// WEBSOCKET HANDLING ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+const std::string handle_get_downsampled_in_range(nlohmann::json in){
+    return R"(
+{
+    "meta": {
+        "responce_to":"get_downsampled_in_range",
+        "channel_ids":["14352","123456"]
+    },
+    "data": [
+        [
+            ["2025-04-14T12:34:56.123456789Z", 45.67],
+            ["2025-04-14T12:34:56.223456789Z", 78.12],
+            ["2025-04-14T12:34:56.323456789Z", 23.45]
+        ],
+        [
+            ["2025-04-14T12:34:57.423456789Z", 91.34],
+            ["2025-04-14T12:34:57.523456789Z", 12.89],
+            ["2025-04-14T12:34:57.623456789Z", 67.01]
+        ]
+    ]
+}
+)";
+}
+
 void StartWS(int &port) {
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection*> users;
@@ -928,6 +951,14 @@ void StartWS(int &port) {
     .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
         CROW_LOG_INFO << "Received message: " << data;
         std::lock_guard<std::mutex> _(mtx);
+        auto json_msg = nlohmann::json::parse(data); //TODO handle multiple 
+        if(json_msg.contains("command") && json_msg["command"].is_string()){
+            const std::string cmd = json_msg["command"];
+            if(cmd == "get_downsampled_in_range" && json_msg.contains("tmin") && json_msg.contains("tmax") && json_msg.contains("desired_number_of_samples")){
+                conn.send_text(handle_get_downsampled_in_range(json_msg));
+            }
+
+        }/*
         auto measurement = std::make_shared<Measurement>(parseWSDataToMeasurement(data));
         if(!measurement->uuids.empty()) {
             clearAllDeques();
@@ -941,7 +972,7 @@ void StartWS(int &port) {
             sendDataviaWSThread = std::thread(&Measurement::start, measurement);
             sendDataviaWSThreadActive = true;
             std::cout << "Measurement was set" << std::endl;
-        }
+        }*/
     });
 
     crowApp.signal_clear();

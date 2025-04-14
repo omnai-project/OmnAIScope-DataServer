@@ -45,8 +45,8 @@ project(${PROJECT_NAME} VERSION 0.0.1)
 if(MSVC)
     add_compile_options(
         $<$<CONFIG:>:/MD> #---------|
-        $<$<CONFIG:Debug>:/MDd> #---|-- Statically link the runtime libraries
-        $<$<CONFIG:Release>:/MD> #--|
+        $<$<CONFIG:Debug>:/MTd> #---|-- Statically link the runtime libraries
+        $<$<CONFIG:Release>:/MT> #--|
     )
     #add_compile_options(/permissive-)
     #set(Boost_USE_STATIC_LIBS "On")
