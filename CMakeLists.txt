@@ -61,7 +61,7 @@ add_subdirectory(${cli11_SOURCE_DIR} ${cli11_BINARY_DIR})
 
 add_executable(${PROJECT_NAME}
                src/data.cpp
-               src/sample.pb.cc)
+               src/protobuf/sample.pb.cc)
 
 #target_add_default_build_options(MiniOmni PUBLIC)
 
