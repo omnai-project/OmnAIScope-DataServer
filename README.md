@@ -16,14 +16,22 @@ The MiniOmni program can be executed via the command line on Windows, Linux, and
 
 The CLI-Tool includes the following functionalities: 
 
--h, --help Displays a help message with detailed usage instructions in the console.
--s, --search Lists the UUIDs of all connected devices, displaying their current LED color for easy identification.
--d, --device, --dev Initiates a measurement session for specified devices by their UUIDs. Multiple devices can be specified, and their data will be displayed directly in the console. 
--o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.
--j, --json Changes the output file format to JSON. 
--w, --websocket Opens a Websocket, as well as a REST API. 
--p, --port Set a port for the Websocket to start on. 
--v, --verbose Prints out additional information about the software's process.
+-h, --help Displays a help message with detailed usage instructions in the console.  
+
+-s, --search Lists the UUIDs of all connected devices, displaying their current LED color for easy identification.  
+
+-d, --device, --dev Initiates a measurement session for specified devices by their UUIDs. Multiple devices can be specified, and their data will be displayed directly in the console.  
+
+-o, --output Writes the data from the selected devices to the specified file path. By default, the data is saved in .csv format.  
+
+-j, --json Changes the output file format to JSON.   
+
+-w, --websocket Opens a Websocket, as well as a REST API.   
+
+-p, --port Set a port for the Websocket to start on.   
+
+-v, --verbose Prints out additional information about the software's process.  
+
 --version Prints out the current SW version 
 
 ### How to use the Websocket: 

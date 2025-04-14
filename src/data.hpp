@@ -27,35 +27,42 @@ enum class FormatType;
 
 //GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
-using val_T = double;
+using val_T = double;  // value
 using ts_T = double; // timestamp
 
-using sample_T = std::tuple<ts_T, val_T, std::optional<std::vector<val_T>>>;
+using sample_T = std::tuple<ts_T, val_T, std::optional<std::vector<val_T>>>; // sample definition
 
 inline OmniscopeDeviceManager deviceManager{};
 inline std::vector<std::shared_ptr<OmniscopeDevice>> devices;
 inline std::optional<OmniscopeSampler> sampler{};
 inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureData;
+
 std::atomic<bool> running{true};
 bool verbose{false};
-std::queue<sample_T> sampleQueue;
+
 std::mutex sampleQueueMutex;
 std::mutex wsDataQueueMutex;
-nlohmann::json HeaderJSON;
+
+std::queue<sample_T> sampleQueue;
 std::queue<nlohmann::json> wsPackagesQueue;
 std::queue<std::string> wsCSVPackagesQueue;
 std::queue<std::string> wsBinaryPackagesQueue;
+
 std::thread wsDataQueueThread;
 std::thread sendDataviaWSThread;
+
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
 std::atomic<bool> wsDataQueueThreadActive{false};
 std::atomic<bool> websocketConnectionActive{false};
+bool sendDataviaWSThreadActive = false;
+
 crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
-bool sendDataviaWSThreadActive = false;
+static bool startWriter = true;
+
+nlohmann::json HeaderJSON;
 static std::atomic<int> dataPointsInSampleQue(0);
 static int Datenanzahl(0);
-static bool startWriter = true;
 
 //FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -63,29 +70,34 @@ void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void selectDevices(std::vector<std::string> &UUID);
+
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
 std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
 double round_to(double, int);
-void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
+
 void resetDevices();
 void clearAllDeques();
-void stopAndJoinWSConnectionThreads();
-void stopAndJoinWSThread();
-void ExitProgramm();
-void CloseWSConnection();
-std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
-nlohmann::json getDevicesAsJson();
-Measurement parseWSDataToMeasurement(const std::string& data);
-void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
 template<typename T, typename Container = std::deque<T>>
 void clearQueue(std::queue<T, Container>& q) {
     std::queue<T, Container> empty;
     std::swap(q, empty);
 };
 
+void stopAndJoinWSConnectionThreads();
+void stopAndJoinWSThread();
+void ExitProgramm();
+void CloseWSConnection();
+
+nlohmann::json getDevicesAsJson();
+Measurement parseWSDataToMeasurement(const std::string& data);
+void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
+void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
+
+
 //CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class DequeFormatter{ // Formatting data from captureData into a deque<sample_T> format
+class QueueFormatter{ // Formatting data from captureData into a queue<sample_T> format
 private:
     std::queue<sample_T>& handle;
     int samplingRate;
@@ -146,11 +158,11 @@ private:
     }
 
 public:
-    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::queue<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue, int &samplingRate)
+    QueueFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::queue<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue, int &samplingRate)
         : handle(handle), samplingRate(samplingRate) {
         transformData(captureData, handle, dataPointsInSampleQue);
     }
-    ~DequeFormatter() {
+    ~QueueFormatter() {
     }
 };
 
@@ -772,8 +784,8 @@ void printOrWriteData(std::shared_ptr<Measurement> measurement) {
             vectorSize = static_cast<int>(updatedDeviceData.size());
         }
 
-        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
-        delete dequeFormatter;
+        QueueFormatter* queueFormatter = new QueueFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
+        delete queueFormatter;
 
         if (startWriter) {
             Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);

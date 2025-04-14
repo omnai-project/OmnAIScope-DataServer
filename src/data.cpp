@@ -1,6 +1,5 @@
 #include "data.hpp"
 
-
 int main(int argc, char **argv) {
 
     GOOGLE_PROTOBUF_VERIFY_VERSION;
@@ -53,37 +52,36 @@ int main(int argc, char **argv) {
         running = false;
     }
 
-    if(port != 0 && WS == false ) {
-        std::cout << "You cant set a port if you dont start the websocket. Usage: Programm -w -p <port> ." << std::endl;
-        running = false;
-    }
-    if(port == 0 && WS == true ) {
-        std::cout << "You cant use a websocket without setting a port. Usage: Programm -w -p <port> ." << std::endl;
-        running = false;
-    }
+    if(running){
+        if(search){ // search for devices and print the UUID
+            searchDevices();
+            printDevices();
+        }
+        if(port != 0 && WS == false ) { // check if WS information is complete 
+            std::cout << "You cant set a port if you dont start the websocket. Usage: Programm -w -p <port> ." << std::endl;
+            running = false;
+        }
+        else if(port == 0 && WS == true ) {
+            std::cout << "You cant use a websocket without setting a port. Usage: Programm -w -p <port> ." << std::endl;
+            running = false;
+        }
+        else if(WS && running) {
+            websocket = std::thread(StartWS, std::ref(port));
+        }
 
-    if(search && running) { // search for devices and print the UUID
-        searchDevices();
-        printDevices();
-    }
-
-    if(WS && running) {
-        websocket = std::thread(StartWS, std::ref(port));
-    }
-
-    DataDestination destination = DataDestination::WS;
-    FormatType format = FormatType::CSV;
-    while(running) {
-        if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
-            destination = DataDestination::LOCALFILE;
-            if(isJson) {
-                format = FormatType::JSON;
+        while(running) {
+            if(!startUUID.empty()) { // Start the measurment with a set UUID and FilePath, data will be written in the filepath or in the console
+                DataDestination destination = DataDestination::LOCALFILE;
+                FormatType format = FormatType::CSV;
+                if(isJson) {
+                    format = FormatType::JSON;
+                }
+                auto measurement = std::make_shared<Measurement>(startUUID, filePath, 10000, format, destination);
+                measurement->start();
             }
-            auto measurement = std::make_shared<Measurement>(startUUID, filePath, 10000, format, destination);
-            measurement->start();
         }
     }
-
+    
     if(!running) {
         ExitProgramm();
     }
