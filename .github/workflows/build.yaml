@@ -1,0 +1,87 @@
+name: Build-Linux-Binary
+
+on:
+  push:
+    tags:
+      - 'v*'                # nur Release-Tags wie v1.2.3
+
+permissions:
+  contents: write
+  actions:  read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04        # x86-64 Läufer
+
+    steps:
+      #######################################################
+      # 1) SSH-Setup, damit private Submodule erreichbar sind
+      #######################################################
+      - name: Set up SSH for private submodules
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      #######################################################
+      # 2) Repository + Submodule per SSH auschecken
+      #######################################################
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0               # ganze Historie + Tags
+          submodules: recursive        # git submodule update --init --recursive
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      #######################################################
+      # 3) System-Pakete
+      #######################################################
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+               build-essential cmake autoconf libudev-dev \
+               automake autoconf-archive ninja-build
+
+      #######################################################
+      # 4) CMake-Konfiguration & Build
+      #######################################################
+      - name: Configure (Release)
+        run: |
+          cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Strip binary (optional)
+        run: strip build/MiniOmni || true
+
+      #######################################################
+      # 5) Binary sammeln
+      #######################################################
+      - name: Stage binary
+        run: |
+          mkdir -p bin
+          cp build/MiniOmni "bin/MiniOmni-linux-${{ github.ref_name }}"
+
+      #######################################################
+      # 6) In Branch „binaries“ pushen (CI-Schleife vermeiden)
+      #######################################################
+      - name: Commit binary
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: binaries
+          file_pattern: 'bin/**'
+          commit_message: "Add Linux binary for ${{ github.ref_name }} [skip ci]"
+
+      #######################################################
+      # 7) (Optional) Artefakt-Upload
+      #######################################################
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniOmni-linux-${{ github.ref_name }}
+          path: bin/
