@@ -74,7 +74,7 @@ void stopAndJoinWSThread();
 void ExitProgramm();
 void CloseWSConnection();
 std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
-nlohmann::json getDevicesAsJson();
+nlohmann::json getDevicesAsJson(bool);
 Measurement parseWSDataToMeasurement(const std::string& data);
 void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
 template<typename T, typename Container = std::deque<T>>
@@ -800,44 +800,59 @@ void printDevices() {
     }
 }
 
-nlohmann::json getDevicesAsJson() {
+nlohmann::json getDevicesAsJson(bool allInfo) {
     nlohmann::json responseJson;
 
-    if (devices.empty()) {
-        // Kein Gerät verbunden
-        responseJson["error"] = "No devices are connected. Please connect a device and start again.";
-    } else {
-        // JSON-Arrays für Geräte und Farben erstellen
-        nlohmann::json devicesArray = nlohmann::json::array();
-        nlohmann::json colorsArray = nlohmann::json::array();
-
-        for (const auto& device : devices) {
-            // Gerätedaten extrahieren
-            std::string deviceId = device->getId()->serial;
-            auto color = uuidToColor(deviceId);
-
-            // Gerät zur JSON-Liste hinzufügen
-            devicesArray.push_back({{"UUID", deviceId}});
-
-            // Farbe zur JSON-Liste hinzufügen
-            nlohmann::json colorJson;
-            colorJson["color"]["r"] = std::get<0>(color);
-            colorJson["color"]["g"] = std::get<1>(color);
-            colorJson["color"]["b"] = std::get<2>(color);
-
-            colorsArray.push_back(colorJson);
-        }
-
-        // JSON-Daten zusammenstellen
-        responseJson["devices"] = devicesArray;
-        responseJson["colors"] = colorsArray;
-
-        // Geräte und Manager zurücksetzen
-        devices.clear();
-        deviceManager.clearDevices();
+    if (devices.empty()) {                                 
+        return {
+            { "error", "No devices are connected. Please connect a device and start again." }
+        };
     }
 
-    return responseJson;
+    auto versionToJson = [](auto v) {
+        return nlohmann::json{
+            { "major", v.major },
+            { "minor", v.minor },
+            { "patch", v.patch }
+        };
+    };
+
+    nlohmann::json response{
+        { "devices", nlohmann::json::array() },
+        { "colors",  nlohmann::json::array() }
+    };
+
+    if (allInfo) {
+        response["hardwareInfo"] = nlohmann::json::array();
+        response["firmwareInfo"] = nlohmann::json::array();
+        response["offset"]       = nlohmann::json::array();
+        response["scale"]        = nlohmann::json::array();
+    }
+
+    /** 
+     * Iteration over the devices to extract all infos
+     */
+    for (const auto& dev : devices)
+    {
+        const auto& id      = dev->getId().value();
+        const std::string& uuid = id.serial;
+        const auto [r,g,b]  = uuidToColor(uuid);
+
+        response["devices"].push_back({ { "UUID", uuid } });
+        response["colors"].push_back ({{ "color", { { "r", r }, { "g", g }, { "b", b } } }});
+
+        if (!allInfo) continue;
+
+        response["hardwareInfo"].push_back( versionToJson(id.hwVersion) );
+        response["firmwareInfo"].push_back( versionToJson(id.swVersion) );
+
+        if (auto o = dev->getOffset(); o) response["offset"].push_back(*o);
+        if (auto s = dev->getScale();  s) response["scale"].push_back(*s);
+    }
+
+    devices.clear();
+    deviceManager.clearDevices();
+    return response;
 }
 
 std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& uuid) {
@@ -890,14 +905,24 @@ void StartWS(int &port) {
     WEBSOCKET_ACTIVE = true;
 
     // API
-    CROW_ROUTE(crowApp, "/UUID") // HTTP GET auf "/hello"
+    CROW_ROUTE(crowApp, "/UUID") 
     ([]() {
         searchDevices();
-        nlohmann::json devicesJson = getDevicesAsJson();
+        nlohmann::json devicesJson = getDevicesAsJson(false);
         return crow::response(devicesJson.dump());
     });
 
-    CROW_ROUTE(crowApp, "/help") // HTTP GET auf "/hello"
+    /**
+     * endpoint to receive further information from the backend 
+     */
+    CROW_ROUTE(crowApp, "/v1/get_info") 
+    ([]() {
+        searchDevices();
+        nlohmann::json devicesJson = getDevicesAsJson(true);
+        return crow::response(devicesJson.dump());
+    });
+
+    CROW_ROUTE(crowApp, "/help") 
     ([]() {
         return std::string("Starting the websocket under ip/ws. Set one or multiply UUIDs by writing them after the hello message. \n")
                + "The last input can be a sampling rate. The default sampling Rate is 60 Sa/s.\n"
