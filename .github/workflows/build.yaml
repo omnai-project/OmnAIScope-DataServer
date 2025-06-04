@@ -1,0 +1,57 @@
+name: Build-Linux-Binary
+
+on:
+  push:
+    tags:
+      - 'v*'               
+
+permissions:
+  actions: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+
+    steps:
+      # --- SSH for private submodule ---------------------------------
+      - name: Set up SSH for private submodules
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      # --- Checkout Submodules ----------------------------------
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # --- System-Pakete ---------------------------------------------
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+               build-essential cmake autoconf libudev-dev \
+               automake autoconf-archive ninja-build
+
+      # --- Build ------------------------------------------------------
+      - name: Configure (Release)
+        run: |
+          cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Strip binary (optional)
+        run: strip build/MiniOmni || true
+
+      # --- upload build artifact------------------
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniOmni-linux-${{ github.ref_name }}
+          path: build/MiniOmni
