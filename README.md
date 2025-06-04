@@ -36,7 +36,7 @@ The websocket currently can be used in a client-based setup.
 
 Run the Websocket in the backend without specifying any UUIDS with the command : 
 ```
-.\MiniOmni -w p <port>
+.\MiniOmni -w -p <port>
 ``` 
 
 Step 2: Retrieve UUIDS via REST API 
