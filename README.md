@@ -36,13 +36,19 @@ The websocket currently can be used in a client-based setup.
 
 Run the Websocket in the backend without specifying any UUIDS with the command : 
 ```
-.\MiniOmni -w 
+.\MiniOmni -w -p <port>
 ``` 
 
 Step 2: Retrieve UUIDS via REST API 
 On the client side, request the available UUIDs by accessing the REST API endpoint:
 ```
 http://<ip>:<port>/UUID
+```
+
+On the client side, request additional information ( HW version, FW version, offset, scale of the calibration of each scope, UUIDs and colors)
+via 
+```
+http://<ip>:<port>/v1/get_info
 ```
 
 Step 3: Connect to the WS 
@@ -59,7 +65,9 @@ To start the measurement the client has to send the UUIDs to the websocket via
 At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default format is json. 
 You will receive data in a json format from the chosen devices with the set sample rate. 
 
-The API documentation can be found under : https://github.com/AI-Gruppe/ai-internal_omnai_backend2.0_api_doc 
+
+The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc
+
 
 # Setting Up and Building the MiniOmni Project
 
