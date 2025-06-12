@@ -66,12 +66,13 @@ At the end of the command the client can send a sample rate which sets the sampl
 You will receive data in a json format from the chosen devices with the set sample rate. 
 
 
-The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc
+#### **The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc**
 
 
 # Setting Up and Building the MiniOmni Project
 
-This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as on Rasberry Pi devices running ARM architecture. 
+This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as on Rasberry Pi devices running ARM architecture.
+**Important: If you don't have access to the private communication submodule it is currently not possible to build this project locally. A CI Build is integrated for Linux that can be used in a fork** 
 
 ---
 # Windows
