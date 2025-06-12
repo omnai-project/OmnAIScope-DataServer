@@ -47,11 +47,11 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Strip binary (optional)
-        run: strip build/MiniOmni || true
+        run: strip build/OmnAIScopeBackend || true
 
       # --- upload build artifact------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MiniOmni-linux-${{ github.ref_name }}
-          path: build/MiniOmni
+          name: OmnAIScopeBackend-linux-${{ github.ref_name }}
+          path: build/OmnAIScopeBackend
