@@ -835,7 +835,7 @@ nlohmann::json getDevicesAsJson(bool allInfo) {
     for (const auto& dev : devices)
     {
         const auto& id      = dev->getId().value();
-        const std::string& uuid = id.serial;
+        const std::string uuid = dev->getId()->serial;
         const auto [r,g,b]  = uuidToColor(uuid);
 
         response["devices"].push_back({ { "UUID", uuid } });
