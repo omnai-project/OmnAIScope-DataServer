@@ -27,36 +27,31 @@ The CLI-Tool includes the commands:
 #### **The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc**
 
 1. Start the Websocket 
-
 Start the executable via 
-```
-.\MiniOmni -w -p <port>
-```
-
+   ```
+   .\OmnAIScopeBackend -w -p <port>
+   ```
 1. Retrieve UUIDS via REST API 
 Request the available UUIDs by accessing the REST API endpoint:
-```
-curl http://<ip>:<port>/UUID
-```
-
-Request additional information ( HW version, FW version, offset, scale of the calibration of each scope, UUIDs and colors)
-via 
-```
-curl http://<ip>:<port>/v1/get_info
-```
-
+   ```
+   curl http://<ip>:<port>/UUID
+   ```
+   Request additional information ( HW version, FW version, offset, scale of the calibration of each scope, UUIDs and colors)
+   via 
+   ```
+   curl http://<ip>:<port>/v1/get_info
+   ```
 1. Establish a WS connection
 
-Connect to the WS via 
-```
-wscat -c ws://<ip>:<port>/ws
-```
-
+   Connect to the WS via 
+   ```
+   wscat -c ws://<ip>:<port>/ws
+   ```
 1. Start the measurement
 To start the measurement the client has to send the UUIDs to the websocket via 
-```
-<UUID1> <UUID2> ... <optional:Sample Rate> <optional:format>
-```
+   ```
+   <UUID1> <UUID2> ... <optional:Sample Rate> <optional:format>
+   ```
 At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default format is json. 
 
 You should receive data in the chosen format from the chosen devices now. 
@@ -85,7 +80,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-### 1. Open Command Prompt and Set Up the Development Environment
+### 2. Open Command Prompt and Set Up the Development Environment
 
 1. Open the Command Prompt (CMD).
 2. Source the environment variables required for the Visual Studio development environment by running:
@@ -96,7 +91,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-### 1. Create a New Folder for Your Work
+### 3. Create a New Folder for Your Work
 
 1. Navigate to a location where you want to set up your project, e.g., `C:\Users\<username>`.
 2. Create a new folder named `cpp` for your C++ projects:
@@ -107,15 +102,15 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-### 1. Clone the Project Repository and Initialize Submodules
+### 4. Clone the Project Repository and Initialize Submodules
 
-1. Clone the MiniOmni project from the repository:
+1. Clone the OmnAIScope-DataServer project from the repository:
    ```cmd
-   git clone git@github.com:AI-Gruppe/mini_omnai.git
+   git clone git@github.com:omnai-project/OmnAIScope-DataServer.git
    ```
 2. Navigate into the cloned project directory:
    ```cmd
-   cd mini_omnai
+   cd OmnAIScope-DataServer
    ```
 3. Initialize and update the submodules:
    ```cmd
@@ -125,7 +120,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-### 1. Install vcpkg in the Project Directory
+### 5. Install vcpkg in the Project Directory
 
 The `vcpkg` tool helps manage and install dependencies for your project.
 
@@ -146,33 +141,33 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-### 1. Download Python if necessary 
+### 6. Download Python if necessary 
 
-### 1. Generate the Build System with CMake
+### 7. Generate the Build System with CMake
 
-1. Return to the root project directory (e.g., `mini_omnai`):
+1. Return to the root project directory (e.g., `OmnAIScopeBackend`):
    ```cmd
    cd ..
    ```
 1. Use `CMake` to configure the project and generate the build system:
    ```cmd
-   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static
+   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows
    ```
-   This command specifies the source directory (`.`), the build directory (`build`), and the toolchain file provided by `vcpkg`. It also configures the project to use the `x64-windows-static` triplet for static linking.
+   This command specifies the source directory (`.`), the build directory (`build`), and the toolchain file provided by `vcpkg`. It also configures the project to use the `x64-windows` triplet for linking.
 
 ---
 
-### 1. Build the Project with CMake
+### 8. Build the Project with CMake
 
 1. Build the project by running:
    ```cmd
    cmake --build build --config Release
    ```
-   This will compile the source code and generate the `MiniOmni.exe` file in the `build/Release` directory.
+   This will compile the source code and generate the `OmnAIScopeBackend.exe` file in the `build/Release` directory.
 
 ---
 
-### 1. Run the Built Release
+### 9. Run the Built Release
 
 1. Navigate to the directory containing the compiled executable:
    ```cmd
@@ -180,14 +175,14 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
    ```
 1. Run the program:
    ```cmd
-   .\MiniOmni.exe
+   .\OmnAIScopeBackend.exe
    ```
 
 The program should start, and you can interact with it as instructed.
 
 ---
 
-By following these steps, you should be able to successfully set up, build, and run the MiniOmni project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
+By following these steps, you should be able to successfully set up, build, and run the OmnAIScope-DataServer. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
 
 ## Rasberry Pi
 
@@ -224,13 +219,13 @@ export VCPKG_FORCE_SYSTEM_BINARIES=1
 ```
 #### Clone the Project Repository and Initialize Submodules
 
-1. Clone the MiniOmni project from the repository:
+1. Clone the OmnAIScope-DataServer project from the repository:
    ```cmd
-   git clone git@github.com:AI-Gruppe/mini_omnai.git
+   git clone git@github.com:omnai-project/OmnAIScope-DevDataServer.git
    ```
 1. Navigate into the cloned project directory:
    ```cmd
-   cd mini_omnai
+   cd OmnAIScope-DevDataServer
    ```
 1. Initialize and update the submodules:
    ```cmd
@@ -248,10 +243,10 @@ Run the following commands to build the project
 
 You can start the project with 
 ```
-   ./MiniOmni
+   ./OmnAIScopeBackend
 ``` 
 
-By following these steps, you should be able to successfully set up, build, and run the MiniOmni project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
+By following these steps, you should be able to successfully set up, build, and run the OmnAIScope-DataServer project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
 ---
 
 
