@@ -1,20 +1,16 @@
-# Introduction 
+## Introduction
 
-The MiniOmni Project is a temporary project aimed at developing a Minimum Viable Product (MVP) for the OmnAIView2.0 backend. The project’s primary objective is to create a backend system capable of retrieving data from multiple OmnAIScopes and providing access to this data to various front-end interfaces in multiple formats. Additionally, the project includes a Command-Line Interface (CLI) tool designed to provide direct data output into various file formats or directly into the console.
+The OmnAIScope-DataServer is a Minimum Viable Product (MVP) of the OmnAIScopeBackend designed as a Command-Line Interface (CLI) tool. 
+The project’s primary purpose is to create a backend system capable of retrieving data from multiple OmnAIScopes and providing access to this data in multiple formats via a websocket connection. This can be used in various front-end interfaces (e.g. python, angular). 
+Additionally, the Command-Line Interface (CLI) provides direct data output into multiple file formats or directly into the console.
 
-The MiniOmni Project currently offers the following features:
+## How to use the CLI-Tool 
 
-- CLI Tool: Enables data retrieval from multiple OmnAIScopes via a command-line interface, with the ability to output data in various formats. (Details can be found in the section "CLI Tool Usage.")
-Via the CLI Tool a websocket can be started a chosen port of the used device. (Details can be found in the section "CLI Tool Usage.")
+The OmnAIScope-DataServer can be executed via the command line on Windows, Linux, and Raspberry Pi devices running ARM architecture.
 
+### Commands
 
-# CLI-Tool Usage 
-
-The MiniOmni program can be executed via the command line on Windows, Linux, and Raspberry Pi devices running ARM architecture.
-
-## Features and Options
-
-The CLI-Tool includes the following functionalities: 
+The CLI-Tool includes the commands: 
 
 -h, --help Displays a help message with detailed usage instructions in the console.
 -s, --search Lists the UUIDs of all connected devices, displaying their current LED color for easy identification.
@@ -26,58 +22,54 @@ The CLI-Tool includes the following functionalities:
 -v, --verbose Prints out additional information about the software's process.
 --version Prints out the current SW version 
 
-### How to use the Websocket: 
+#### How to use the Websocket: 
 
-The websocket currently can be used in a client-based setup. 
-
-2. Using the Websocket in a Client-based Setup 
+#### **The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc**
 
 1. Start the Websocket 
 
-Run the Websocket in the backend without specifying any UUIDS with the command : 
+Start the executable via 
 ```
 .\MiniOmni -w -p <port>
-``` 
-
-Step 2: Retrieve UUIDS via REST API 
-On the client side, request the available UUIDs by accessing the REST API endpoint:
-```
-http://<ip>:<port>/UUID
 ```
 
-On the client side, request additional information ( HW version, FW version, offset, scale of the calibration of each scope, UUIDs and colors)
+1. Retrieve UUIDS via REST API 
+Request the available UUIDs by accessing the REST API endpoint:
+```
+curl http://<ip>:<port>/UUID
+```
+
+Request additional information ( HW version, FW version, offset, scale of the calibration of each scope, UUIDs and colors)
 via 
 ```
-http://<ip>:<port>/v1/get_info
+curl http://<ip>:<port>/v1/get_info
 ```
 
-Step 3: Connect to the WS 
-Establish a WS connection via
+1. Establish a WS connection
+
+Connect to the WS via 
 ```
 wscat -c ws://<ip>:<port>/ws
 ```
 
-Step 4: Start the measurement
+1. Start the measurement
 To start the measurement the client has to send the UUIDs to the websocket via 
 ```
 <UUID1> <UUID2> ... <optional:Sample Rate> <optional:format>
 ```
 At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default format is json. 
-You will receive data in a json format from the chosen devices with the set sample rate. 
 
+You should receive data in the chosen format from the chosen devices now. 
 
-#### **The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc**
-
-
-# Setting Up and Building the MiniOmni Project
-
-This document provides step-by-step instructions to set up your environment, build, and run the MiniOmni project on Windows as well as on Rasberry Pi devices running ARM architecture.
+## How to build the project
 **Important: If you don't have access to the private communication submodule it is currently not possible to build this project locally. A CI Build is integrated for Linux that can be used in a fork** 
 
----
-# Windows
+This document provides step-by-step instructions to set up your environment, build, and run the OmnAIScope-DataServer  on Windows as well as on Rasberry Pi devices running ARM architecture.
 
-## 1. Download and Install Visual Studio
+---
+## Windows
+
+### 1. Download and Install Visual Studio
 To develop and build C++ applications, you need to install the required tools using Visual Studio.
 
 1. Download the **Visual Studio Installer** from [Visual Studio](https://visualstudio.microsoft.com/downloads/).
@@ -93,7 +85,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-## 2. Open Command Prompt and Set Up the Development Environment
+### 1. Open Command Prompt and Set Up the Development Environment
 
 1. Open the Command Prompt (CMD).
 2. Source the environment variables required for the Visual Studio development environment by running:
@@ -104,7 +96,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-## 3. Create a New Folder for Your Work
+### 1. Create a New Folder for Your Work
 
 1. Navigate to a location where you want to set up your project, e.g., `C:\Users\<username>`.
 2. Create a new folder named `cpp` for your C++ projects:
@@ -115,7 +107,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-## 4. Clone the Project Repository and Initialize Submodules
+### 1. Clone the Project Repository and Initialize Submodules
 
 1. Clone the MiniOmni project from the repository:
    ```cmd
@@ -133,7 +125,7 @@ To develop and build C++ applications, you need to install the required tools us
 
 ---
 
-## 5. Install vcpkg in the Project Directory
+### 1. Install vcpkg in the Project Directory
 
 The `vcpkg` tool helps manage and install dependencies for your project.
 
@@ -154,15 +146,15 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-## 6. Download Python if necessary 
+### 1. Download Python if necessary 
 
-## 7. Generate the Build System with CMake
+### 1. Generate the Build System with CMake
 
 1. Return to the root project directory (e.g., `mini_omnai`):
    ```cmd
    cd ..
    ```
-2. Use `CMake` to configure the project and generate the build system:
+1. Use `CMake` to configure the project and generate the build system:
    ```cmd
    cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static
    ```
@@ -170,7 +162,7 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-## 8. Build the Project with CMake
+### 1. Build the Project with CMake
 
 1. Build the project by running:
    ```cmd
@@ -180,13 +172,13 @@ If you know how to configure paths and toolchain files manually, `vcpkg` can als
 
 ---
 
-## 9. Run the Built Release
+### 1. Run the Built Release
 
 1. Navigate to the directory containing the compiled executable:
    ```cmd
    cd build/Release
    ```
-2. Run the program:
+1. Run the program:
    ```cmd
    .\MiniOmni.exe
    ```
@@ -197,15 +189,15 @@ The program should start, and you can interact with it as instructed.
 
 By following these steps, you should be able to successfully set up, build, and run the MiniOmni project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
 
-# Rasberry Pi
+## Rasberry Pi
 
-# Build and Run Instructions on ARM
+## Build and Run Instructions on ARM
 
 This guide explains how to build and run the program on ARM-based platforms. Follow the steps below to set up, compile, and run the program.
 
 ---
 
-## Prerequisites
+### Prerequisites
 
 Make sure the following packages are installed:
 
@@ -216,7 +208,7 @@ Make sure the following packages are installed:
 - `automake`
 - `autoconf-archive`
 
-### Installing Required Packages (Debian-based Systems)
+#### Installing Required Packages (Debian-based Systems)
 
 Run the following command to install the necessary packages:
 
@@ -225,28 +217,28 @@ sudo apt update
 sudo apt install build-essential cmake autoconf libudev-dev
 ```
 
-### Set VCPKG Variable 
+#### Set VCPKG Variable 
 
 ```
 export VCPKG_FORCE_SYSTEM_BINARIES=1
 ```
-### Clone the Project Repository and Initialize Submodules
+#### Clone the Project Repository and Initialize Submodules
 
 1. Clone the MiniOmni project from the repository:
    ```cmd
    git clone git@github.com:AI-Gruppe/mini_omnai.git
    ```
-2. Navigate into the cloned project directory:
+1. Navigate into the cloned project directory:
    ```cmd
    cd mini_omnai
    ```
-3. Initialize and update the submodules:
+1. Initialize and update the submodules:
    ```cmd
    git submodule update --init --recursive
    ```
    This ensures all dependencies and additional components required by the project are retrieved.
 
-## Building 
+### Building 
 
 Run the following commands to build the project 
 ```
