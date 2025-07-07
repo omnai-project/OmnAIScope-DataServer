@@ -55,3 +55,50 @@ jobs:
         with:
           name: OmnAIScopeBackend-linux-${{ github.ref_name }}
           path: build/OmnAIScopeBackend
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Set up SSH for private submodules
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Set up MSVC environment
+        run: |
+          "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+        shell: cmd
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+        shell: powershell
+
+      - name: Configure with CMake
+        run: |
+          cmake -S . -B build -G `
+                -DCMAKE_BUILD_TYPE=Release `
+                -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+                -DVCPKG_TARGET_TRIPLET=x64-windows
+        shell: powershell
+
+      - name: Build
+        run: cmake --build build --config Release
+        shell: powershell
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmnAIScopeBackend-windows-${{ github.ref_name }}
+          path: build/Release/OmnAIScopeBackend.exe
