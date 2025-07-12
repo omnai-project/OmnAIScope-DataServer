@@ -888,7 +888,6 @@ void searchDevices()
         devices.clear();
         deviceManager.clearDevices();
         initDevices();
-        std::this_thread::sleep_for(std::chrono::seconds(2)); // TODO: This should be not needed, test if this can be deleted
     }
 }
 /**
