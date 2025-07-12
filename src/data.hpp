@@ -1277,7 +1277,6 @@ void processDeque(crow::websocket::connection &conn, std::shared_ptr<Measurement
     {
         if (measurement->format == FormatType::JSON)
         {
-            std::cout << "Format ist json" << std::endl;
             std::lock_guard<std::mutex> lock(wsDataQueueMutex);
             if (!wsPackagesQueue.empty())
             {
