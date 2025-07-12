@@ -22,6 +22,7 @@
 
 class Writer;
 class Measurement;
+class ControlWriter; 
 enum class DataDestination;
 enum class FormatType;
 
@@ -204,7 +205,6 @@ enum class FormatType
     UNKNOWN
 };
 
-void printOrWriteData(std::shared_ptr<Measurement> measurement);
 /**
  * @brief create a Measurement on construction
  *  Provides functionality to start a measurement
@@ -227,31 +227,7 @@ public:
         : uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
     Measurement() = default;
     ~Measurement() {}
-    /**
-     * @brief Start a measurement with the Measurement object presets
-     */
-    void start()
-    {
-        auto self = shared_from_this();
-        searchDevices(); // Init Scopes
-        selectDevices(self->uuids); // select only chosen devices
-
-        if (self->dataDestination == DataDestination::WS)
-        {
-            while (sendDataviaWSThreadActive)
-            {
-                printOrWriteData(self);     // process data from devices 
-            }
-        }
-        else
-        {
-            while (running)
-            {
-                printOrWriteData(self);     // process data from devices 
-            }
-            resetDevices();
-        }
-    }
+    void start(ControlWriter &controlWriter);
 };
 
 // WRITER//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -699,8 +675,87 @@ public:
     }
 };
 
+class ControlWriter {
+    public: 
+        void printOrWriteData(std::shared_ptr<Measurement> measurement);
+        void stopWriter();   
+
+    private: 
+        Writer* writer_{nullptr}; 
+};
 // FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /**
+     * @brief Start a measurement with the Measurement object presets
+     */
+    void Measurement::start(ControlWriter &controlWriter)
+    {
+        auto self = shared_from_this();
+        searchDevices(); // Init Scopes
+        selectDevices(self->uuids); // select only chosen devices
+
+        if (self->dataDestination == DataDestination::WS)
+        {
+            while (sendDataviaWSThreadActive)
+            {
+                controlWriter.printOrWriteData(self);     // process data from devices 
+            }
+        }
+        else
+        {
+            while (running)
+            {
+                controlWriter.printOrWriteData(self);     // process data from devices 
+            }
+            resetDevices();
+        }
+    }
+    /**
+    * @brief Starts the QueueFormatter, waits till formatter stops, starts writer with given measurement presets
+    */
+    /* This is buggy: writer is only destructed on programm exit --> problems with ws, writer cannot start befor batch is transformed --> Makes it all a lot slower
+    */
+    void ControlWriter::printOrWriteData(std::shared_ptr<Measurement> measurement)
+    {
+        if (sampler.has_value())
+        {
+            captureData.clear();
+            int vectorSize = 0;
+
+            while (vectorSize < 100000)
+            {
+                if (sampler.has_value())
+                {
+                    sampler->copyOut(captureData); // all copy out data is cleared from sampler by copyOut function
+                }
+                if (captureData.empty())
+                {
+                    return;
+                }
+                auto it = captureData.begin();
+                auto &[updatedId, updatedDeviceData] = *it;
+                vectorSize = static_cast<int>(updatedDeviceData.size());
+            }
+
+            QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
+            delete queueFormatter;
+
+            if (startWriter)
+            {
+                writer_= new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
+                startWriter = false;
+            }
+        }
+    }
+    void ControlWriter::stopWriter() {
+    // this could lead to race condition but in rare cases 
+        if(!websocketConnectionActive){
+            if (writer_) {
+                delete writer_;
+                writer_ = nullptr;
+            }
+        }
+    }
 // Closing the Programm and WS Connections savely:
 
 // TODO :  Make this cleaner, this is a mess
@@ -734,10 +789,11 @@ void ExitProgramm()
 /**
  * @brief stops WS threads, reset Devices, set startWriter to true
  */
-void CloseWSConnection()
+void CloseWSConnection(ControlWriter &controlWriter)
 {
     stopAndJoinWSConnectionThreads();
     resetDevices();
+    controlWriter.stopWriter(); 
     startWriter = true;
 }
 /**
@@ -948,44 +1004,6 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
 
 // DATAHANDELING///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /**
- * @brief Starts the QueueFormatter, waits till formatter stops, starts writer with given measurement presets
- */
-
-/* This is buggy: writer is only destructed on programm exit --> problems with ws, writer cannot start befor batch is transformed --> Makes it all a lot slower
- */
-void printOrWriteData(std::shared_ptr<Measurement> measurement)
-{
-    if (sampler.has_value())
-    {
-        captureData.clear();
-        int vectorSize = 0;
-
-        while (vectorSize < 100000)
-        {
-            if (sampler.has_value())
-            {
-                sampler->copyOut(captureData); // all copy out data is cleared from sampler by copyOut function
-            }
-            if (captureData.empty())
-            {
-                return;
-            }
-            auto it = captureData.begin();
-            auto &[updatedId, updatedDeviceData] = *it;
-            vectorSize = static_cast<int>(updatedDeviceData.size());
-        }
-
-        QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
-        delete queueFormatter;
-
-        if (startWriter)
-        {
-            Writer *writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
-            startWriter = false;
-        }
-    }
-}
-/**
  * @brief Prints devices from global device variable, sets running = false after that --> should stop application
  */
 void printDevices()
@@ -1118,7 +1136,7 @@ double round_to(double value, int decimals)
  * Provides API endpoints for information and WS communication to start a measurement
  * @param port to start WS on
  */
-void StartWS(int &port)
+void StartWS(int &port, ControlWriter &controlWriter)
 {
     std::mutex mtx;
     std::unordered_set<crow::websocket::connection *> users;
@@ -1191,7 +1209,7 @@ void StartWS(int &port)
     {
         websocketConnectionActive = false;
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
-        CloseWSConnection();
+        CloseWSConnection(controlWriter);
         std::lock_guard<std::mutex> _(mtx);
         users.erase(&conn);
     })
@@ -1209,7 +1227,7 @@ void StartWS(int &port)
                 conn.send_text("Sending data was started via the client.");
             }
 
-            sendDataviaWSThread = std::thread(&Measurement::start, measurement);
+            sendDataviaWSThread = std::thread(&Measurement::start, measurement, std::ref(controlWriter));
             sendDataviaWSThreadActive = true;
             std::cout << "Measurement was set" << std::endl;
         }

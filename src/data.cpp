@@ -9,6 +9,9 @@ int main(int argc, char **argv) {
 
     running = true;
 
+    ControlWriter controlWriter{}; 
+
+
 // Create Optional CLI Tool
     CLI::App app{"OmnAI CLI"};
 
@@ -68,7 +71,7 @@ int main(int argc, char **argv) {
     }
 
     if(WS && running) {
-        websocket = std::thread(StartWS, std::ref(port));
+        websocket = std::thread(StartWS, std::ref(port), std::ref(controlWriter));
     }
 
     DataDestination destination = DataDestination::WS;
@@ -80,7 +83,7 @@ int main(int argc, char **argv) {
                 format = FormatType::JSON;
             }
             auto measurement = std::make_shared<Measurement>(startUUID, filePath, 10000, format, destination);
-            measurement->start();
+            measurement->start(controlWriter);
         }
     }
 
