@@ -956,26 +956,25 @@ void parseDeviceMetaData(Omniscope::MetaData metaData,
  * @brief Starts the QueueFormatter, waits till formatter stops, starts writer with given measurement presets
  */
 
-/* This is buggy: writer is only destructed on programm exit, clearData clears all data between two batches, writer cannot start befor batch is transformed --> Makes it all a lot slower
+/* This is buggy: writer is only destructed on programm exit --> problems with ws, writer cannot start befor batch is transformed --> Makes it all a lot slower
  */
 void printOrWriteData(std::shared_ptr<Measurement> measurement)
 {
     if (sampler.has_value())
     {
-        captureData.clear(); // if i clear this here this will delete all data that was taken between two batches that does not work this way
+        captureData.clear();
         int vectorSize = 0;
 
         while (vectorSize < 100000)
         {
             if (sampler.has_value())
             {
-                sampler->copyOut(captureData);
+                sampler->copyOut(captureData); // all copy out data is cleared from sampler by copyOut function
             }
             if (captureData.empty())
             {
                 return;
             }
-
             auto it = captureData.begin();
             auto &[updatedId, updatedDeviceData] = *it;
             vectorSize = static_cast<int>(updatedDeviceData.size());
