@@ -233,25 +233,21 @@ public:
     void start()
     {
         auto self = shared_from_this();
+        searchDevices(); // Init Scopes
+        selectDevices(self->uuids); // select only chosen devices
 
         if (self->dataDestination == DataDestination::WS)
         {
             while (sendDataviaWSThreadActive)
             {
-                searchDevices(); // Init Scopes
-
-                selectDevices(self->uuids); // select only chosen devices
-                printOrWriteData(self);     // print the data in the console or save it in the given filepath
+                printOrWriteData(self);     // process data from devices 
             }
         }
         else
         {
             while (running)
             {
-                searchDevices(); // Init Scopes
-
-                selectDevices(self->uuids); // select only chosen devices
-                printOrWriteData(self);     // print the data in the console or save it in the given filepath
+                printOrWriteData(self);     // process data from devices 
             }
             resetDevices();
         }
