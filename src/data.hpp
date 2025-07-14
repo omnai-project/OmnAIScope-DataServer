@@ -1,4 +1,4 @@
-//#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
+// #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 #include <boost/asio.hpp>
 #include <iostream>
 #include <chrono>
@@ -18,14 +18,14 @@
 #include "crow/middlewares/cors.h"
 #include "sample.pb.h"
 
-//CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class Writer;
 class Measurement;
 enum class DataDestination;
 enum class FormatType;
 
-//GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
+// GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
 using val_T = double;
 using ts_T = double; // timestamp
@@ -57,69 +57,93 @@ static std::atomic<int> dataPointsInSampleQue(0);
 static int Datenanzahl(0);
 static bool startWriter = true;
 
-//FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
+// FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void initDevices();
 void printDevices(std::vector<std::shared_ptr<OmniscopeDevice>> &);
 void searchDevices();
 void selectDevices(std::vector<std::string> &UUID);
-std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& );
-std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& );
+std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string &);
+std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t> &);
 double round_to(double, int);
 void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
 void resetDevices();
-void clearAllDeques();
+void clearAllQueues();
 void stopAndJoinWSConnectionThreads();
 void stopAndJoinWSThread();
 void ExitProgramm();
 void CloseWSConnection();
-std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb);
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t> &rgb);
 nlohmann::json getDevicesAsJson(bool);
-Measurement parseWSDataToMeasurement(const std::string& data);
-void processDeque(crow::websocket::connection&, std::shared_ptr<Measurement>);
-template<typename T, typename Container = std::deque<T>>
-void clearQueue(std::queue<T, Container>& q) {
+Measurement parseWSDataToMeasurement(const std::string &data);
+void processDeque(crow::websocket::connection &, std::shared_ptr<Measurement>);
+template <typename T, typename Container = std::deque<T>>
+void clearQueue(std::queue<T, Container> &q)
+{
     std::queue<T, Container> empty;
     std::swap(q, empty);
 };
 
-//CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-class DequeFormatter{ // Formatting data from captureData into a deque<sample_T> format
+// CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief Transform data map std::map<Omniscope::Id, std::vector<std::pair<double,double>>> to std::queue<sample_T>
+ * This class starts transformData function on construction with params from the constructor
+ * @param captureData map of OmnAIScope data
+ * @param handle Handle to data queue with samples
+ * @param dataPointsInSampleQue count amount of samples in Que, check against SegFault
+ * @param samplingRate wanted samples per second, between 10 and 100000 per second
+ */
+class QueueFormatter
+{
 private:
-    std::queue<sample_T>& handle;
+    std::queue<sample_T> &handle;
     int samplingRate;
-
-    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::queue<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue) {
-        // transform Data into the sample format
+    /**
+     * @brief Transform data map std::map<Omniscope::Id, std::vector<std::pair<double,double>>> to std::queue<sample_T>
+     * @param captureData map of OmnAIScope data
+     * @param handle Handle to data queue with samples
+     * @param dataPointsInSampleQue count amount of samples in Que, check against SegFault
+     * @details
+     * CaptureData contains a different amount of data points each time, samples at the edge are sometimes ignored at specific sampling rates
+     * Values are rounded to 5th decimal place
+     */
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue)
+    {
+        // TODO: sampling should be improved
         int currentPosition = 0;
         ts_T timeStamp = 0;
         val_T firstX = 0;
         std::optional<std::vector<val_T>> otherX;
         int sampleQuotient = 10000;
 
-        if(samplingRate > 10 && samplingRate < 100000) {
-            sampleQuotient = 100000/samplingRate;
+        if (samplingRate > 10 && samplingRate < 100000)
+        {
+            sampleQuotient = 100000 / samplingRate;
         }
-        if(verbose) {
-            std::cout << "sampling quo: " << sampleQuotient << std::endl;
+        if (verbose)
+        {
+            std::cout << "sampleQuotient: " << sampleQuotient << std::endl;
         }
-
-        if (captureData.empty()) {
+        if (captureData.empty())
+        {
             return;
         }
 
         // Access to first device
-        const auto& [firstId, firstDeviceData] = *captureData.begin();
+        const auto &[firstId, firstDeviceData] = *captureData.begin();
         size_t vectorSize = firstDeviceData.size();
 
-        for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition) {
-            if((currentPosition + sampleQuotient) < vectorSize) {
-                currentPosition = currentPosition + sampleQuotient-1;
+        for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition)
+        {
+            if ((currentPosition + sampleQuotient) < vectorSize)
+            {
+                currentPosition = currentPosition + sampleQuotient - 1;
             }
-            else return;
+            else
+                return;
 
-            if (!running) {
+            if (!running)
+            {
                 return;
             }
 
@@ -129,16 +153,18 @@ private:
 
             // values from other devices
             otherX = std::vector<val_T>();
-            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it) {
-                const auto& deviceData = it->second;
-                if (currentPosition < deviceData.size()) {
-                    otherX->push_back(round_to(deviceData[currentPosition].second,5));
+            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it)
+            {
+                const auto &deviceData = it->second;
+                if (currentPosition < deviceData.size())
+                {
+                    otherX->push_back(round_to(deviceData[currentPosition].second, 5));
                 }
             }
 
             sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
 
-            //thread save acces to handle and counter
+            // thread save access to handle and counter
             std::lock_guard<std::mutex> lock(sampleQueueMutex);
             handle.push(sample);
             dataPointsInSampleQue++;
@@ -146,22 +172,32 @@ private:
     }
 
 public:
-    DequeFormatter(std::map<Omniscope::Id, std::vector<std::pair<double,double>>>& captureData, std::queue<sample_T>&handle, std::atomic<int>& dataPointsInSampleQue, int &samplingRate)
-        : handle(handle), samplingRate(samplingRate) {
+    QueueFormatter(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue, int &samplingRate)
+        : handle(handle), samplingRate(samplingRate)
+    {
         transformData(captureData, handle, dataPointsInSampleQue);
     }
-    ~DequeFormatter() {
+    ~QueueFormatter()
+    {
     }
 };
 
-//MEASUREMENT///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MEASUREMENT///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-enum class DataDestination {
+/**
+ * @brief defines possible datadestinations
+ */
+enum class DataDestination
+{
     LOCALFILE,
     WS
 };
 
-enum class FormatType {
+/**
+ * defines possible format types
+ */
+enum class FormatType
+{
     CSV,
     JSON,
     BINARY,
@@ -169,8 +205,17 @@ enum class FormatType {
 };
 
 void printOrWriteData(std::shared_ptr<Measurement> measurement);
-
-class Measurement:  public std::enable_shared_from_this<Measurement> {
+/**
+ * @brief create a Measurement on construction
+ *  Provides functionality to start a measurement
+ * @param uuids of devices
+ * @param samplingRate of data
+ * @param format of data
+ * @param dataDestination of data
+ * @param filePath optional filePath for output
+ */
+class Measurement : public std::enable_shared_from_this<Measurement>
+{
 public:
     std::vector<std::string> uuids;
     int samplingRate;
@@ -178,48 +223,63 @@ public:
     DataDestination dataDestination;
     std::string filePath; // optional
 
-    Measurement(std::vector<std::string> uuids,std::string filePath, int samplingRate, FormatType fmt, DataDestination destination)
-        :uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
+    Measurement(std::vector<std::string> uuids, std::string filePath, int samplingRate, FormatType fmt, DataDestination destination)
+        : uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
     Measurement() = default;
     ~Measurement() {}
-
-    void start() {
+    /**
+     * @brief Start a measurement with the Measurement object presets
+     */
+    void start()
+    {
         auto self = shared_from_this();
 
-        if(self -> dataDestination == DataDestination::WS) {
-            while(sendDataviaWSThreadActive) {
-                searchDevices();   // Init Scopes
+        if (self->dataDestination == DataDestination::WS)
+        {
+            while (sendDataviaWSThreadActive)
+            {
+                searchDevices(); // Init Scopes
 
-                selectDevices(self->uuids);  // select only chosen devices
-                printOrWriteData(self); // print the data in the console or save it in the given filepath
+                selectDevices(self->uuids); // select only chosen devices
+                printOrWriteData(self);     // print the data in the console or save it in the given filepath
             }
         }
-        else {
-            while(running) {
-                searchDevices();   // Init Scopes
+        else
+        {
+            while (running)
+            {
+                searchDevices(); // Init Scopes
 
-                selectDevices(self->uuids);  // select only chosen devices
-                printOrWriteData(self); // print the data in the console or save it in the given filepath
+                selectDevices(self->uuids); // select only chosen devices
+                printOrWriteData(self);     // print the data in the console or save it in the given filepath
             }
             resetDevices();
         }
     }
 };
 
-
-//WRITER//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-class Writer{ // write data into various formats, including a json object for the Websocket
+// WRITER//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief On construction: Starts to write a measurement in a object or file depending on the given presets
+ * Stops to write on destruction
+ * @param measurement object of type Measurement
+ * @param handle to a data queue
+ * @param dataPointsInSampleQue amount of datapoints in the data queue
+ * @param jsonHandle and other handles / currently not sure why they are needed
+ */
+class Writer
+{   // write data into various formats, including a json object for the Websocket
 private:
     std::ofstream outFile;
-    std::queue<sample_T>& handle;
-    std::queue<nlohmann::json>& jsonHandle;
-    std::queue<std::string> & csvHandle;
-    std::queue<std::string> & binaryHandle;
+    std::queue<sample_T> &handle;
+    std::queue<nlohmann::json> &jsonHandle;
+    std::queue<std::string> &csvHandle;
+    std::queue<std::string> &binaryHandle;
     std::thread writerThread;
     std::shared_ptr<Measurement> measurement;
 
-    nlohmann::json createJsonObject(const std::vector<std::string>& UUIDs) {
+    nlohmann::json createJsonObject(const std::vector<std::string> &UUIDs)
+    {
         nlohmann::json jsonObject;
 
         // Metadata-Objekt erstellen
@@ -227,7 +287,8 @@ private:
         nlohmann::json devices = nlohmann::json::array();
 
         // Devices-Daten hinzufügen
-        for (const auto& uuid : UUIDs) {
+        for (const auto &uuid : UUIDs)
+        {
             nlohmann::json device;
             device["UUID"] = uuid;
             devices.push_back(device);
@@ -241,68 +302,83 @@ private:
         return jsonObject;
     }
 
-
-    void write_csv(std::atomic<int> &dataPointsInSampleQue) {
-        while(running) {
-            if(dataPointsInSampleQue > 0) {
+    void write_csv(std::atomic<int> &dataPointsInSampleQue)
+    {
+        while (running)
+        {
+            if (dataPointsInSampleQue > 0)
+            {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
                 handle.pop();
 
                 outFile << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
-                const auto& optionalValues = std::get<2>(sample);
-                if(optionalValues) {
-                    for(size_t i = 0; i < optionalValues->size(); i++ ) {
+                const auto &optionalValues = std::get<2>(sample);
+                if (optionalValues)
+                {
+                    for (size_t i = 0; i < optionalValues->size(); i++)
+                    {
                         outFile << (*optionalValues)[i];
-                        if(i < optionalValues->size()-1) {
-                            outFile << " , " ;
+                        if (i < optionalValues->size() - 1)
+                        {
+                            outFile << " , ";
                         }
                     }
                 }
                 outFile << "\n";
-                dataPointsInSampleQue --;
+                dataPointsInSampleQue--;
             }
         }
     }
 
-    void write_json(std::atomic<int> &dataPointsInSampleQue) {
+    void write_json(std::atomic<int> &dataPointsInSampleQue)
+    {
 
         outFile << "\"data\": " << "[";
-        while(running) {
-            if(dataPointsInSampleQue > 0) {
+        while (running)
+        {
+            if (dataPointsInSampleQue > 0)
+            {
                 int i = 0;
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
                 handle.pop();
 
-                outFile << "{\"timestamp\" : " << std::get<0>(sample) << ","<< "\"value\": [" << std::get<1>(sample);
-                if (i < measurement->uuids.size() -1) {
+                outFile << "{\"timestamp\" : " << std::get<0>(sample) << "," << "\"value\": [" << std::get<1>(sample);
+                if (i < measurement->uuids.size() - 1)
+                {
                     outFile << ",";
                     i++;
                 }
-                const auto& optionalValues = std::get<2>(sample);
-                if(optionalValues) {
-                    for(const auto& value : optionalValues.value()) {
+                const auto &optionalValues = std::get<2>(sample);
+                if (optionalValues)
+                {
+                    for (const auto &value : optionalValues.value())
+                    {
                         outFile << value;
-                        if (i < measurement->uuids.size()-1) {
+                        if (i < measurement->uuids.size() - 1)
+                        {
                             outFile << ",";
                             i++;
                         }
                     }
                 }
                 outFile << "]" << "}" << ",";
-                dataPointsInSampleQue --;
+                dataPointsInSampleQue--;
                 i = 0;
             }
         }
         outFile << "]";
     }
 
-    void write_console(std::atomic<int> &dataPointsInSampleQue) {
-        while(running) {
-            if(dataPointsInSampleQue > 0) {
+    void write_console(std::atomic<int> &dataPointsInSampleQue)
+    {
+        while (running)
+        {
+            if (dataPointsInSampleQue > 0)
+            {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
@@ -311,13 +387,17 @@ private:
                 std::cout << "\r[";
 
                 std::cout << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
-                const auto& optionalValues = std::get<2>(sample);
-                if(optionalValues) {
-                    if(optionalValues) {
-                        for(size_t i = 0; i < optionalValues->size(); i++ ) {
+                const auto &optionalValues = std::get<2>(sample);
+                if (optionalValues)
+                {
+                    if (optionalValues)
+                    {
+                        for (size_t i = 0; i < optionalValues->size(); i++)
+                        {
                             std::cout << (*optionalValues)[i];
-                            if(i < optionalValues->size()-1) {
-                                std::cout << " , " ;
+                            if (i < optionalValues->size() - 1)
+                            {
+                                std::cout << " , ";
                             }
                         }
                     }
@@ -325,20 +405,23 @@ private:
 
                 std::cout << "]" << std::flush;
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                dataPointsInSampleQue --;
+                dataPointsInSampleQue--;
             }
         }
     }
 
-    void write_JsonObject(std::atomic<int> &dataPointsInSampleQue, std::mutex& jsonMutex) {
+    void write_JsonObject(std::atomic<int> &dataPointsInSampleQue, std::mutex &jsonMutex)
+    {
         constexpr int batchSize = 1;
         nlohmann::json currentBatch;
         currentBatch["data"] = nlohmann::json::array();
 
         int batchCounter = 0;
 
-        while (websocketConnectionActive) {
-            if (dataPointsInSampleQue > 0) {
+        while (websocketConnectionActive)
+        {
+            if (dataPointsInSampleQue > 0)
+            {
                 sample_T sample;
 
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
@@ -351,9 +434,11 @@ private:
                 sampleObject["value"] = nlohmann::json::array();
                 sampleObject["value"].push_back(std::get<1>(sample));
 
-                const auto& optionalValues = std::get<2>(sample);
-                if(optionalValues) {
-                    for (size_t i = 0; i < optionalValues->size(); ++i) {
+                const auto &optionalValues = std::get<2>(sample);
+                if (optionalValues)
+                {
+                    for (size_t i = 0; i < optionalValues->size(); ++i)
+                    {
                         sampleObject["value"].push_back((*optionalValues)[i]);
                     }
                 }
@@ -361,10 +446,11 @@ private:
                 // push in JSON queue:
 
                 currentBatch["data"].push_back(sampleObject);
-                batchCounter ++;
-                dataPointsInSampleQue --;
+                batchCounter++;
+                dataPointsInSampleQue--;
 
-                if(batchCounter >= batchSize) {
+                if (batchCounter >= batchSize)
+                {
                     std::lock_guard<std::mutex> lock(jsonMutex);
                     jsonHandle.push(currentBatch);
 
@@ -375,14 +461,16 @@ private:
             }
         }
     }
-    void write_CsvBatch(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex)
+    void write_CsvBatch(std::atomic<int> &dataPointsInSampleQue, std::mutex &jsonMutex)
     {
         std::string currentBatch;
         int batchSize = 1;
         int batchCounter = 0;
 
-        while (websocketConnectionActive) {
-            if (dataPointsInSampleQue > 0) {
+        while (websocketConnectionActive)
+        {
+            if (dataPointsInSampleQue > 0)
+            {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
                 sample = handle.front();
@@ -393,9 +481,11 @@ private:
 
                 oss << std::get<0>(sample) << ", " << std::get<1>(sample);
 
-                const auto& optionalValues = std::get<2>(sample);
-                if (optionalValues.has_value()) {
-                    for (const auto& val : optionalValues.value()) {
+                const auto &optionalValues = std::get<2>(sample);
+                if (optionalValues.has_value())
+                {
+                    for (const auto &val : optionalValues.value())
+                    {
                         oss << ", " << val;
                     }
                 }
@@ -406,7 +496,8 @@ private:
                 ++batchCounter;
                 --dataPointsInSampleQue;
 
-                if (batchCounter >= batchSize) {
+                if (batchCounter >= batchSize)
+                {
                     std::lock_guard<std::mutex> lock(jsonMutex);
                     csvHandle.push(currentBatch);
                     currentBatch.clear();
@@ -416,15 +507,19 @@ private:
             }
         }
 
-        if (!currentBatch.empty()) {
+        if (!currentBatch.empty())
+        {
             std::lock_guard<std::mutex> lock(jsonMutex);
             csvHandle.push(currentBatch);
         }
     }
 
-    void write_ProtobufSamples(std::atomic<int>& dataPointsInSampleQue, std::mutex& jsonMutex) {
-        while (websocketConnectionActive) {
-            if (dataPointsInSampleQue > 0) {
+    void write_ProtobufSamples(std::atomic<int> &dataPointsInSampleQue, std::mutex &jsonMutex)
+    {
+        while (websocketConnectionActive)
+        {
+            if (dataPointsInSampleQue > 0)
+            {
                 sample_T sample;
                 {
                     std::lock_guard<std::mutex> lock(sampleQueueMutex);
@@ -437,15 +532,18 @@ private:
 
                 sampleMsg.add_values(std::get<1>(sample));
 
-                const auto& optValues = std::get<2>(sample);
-                if (optValues) {
-                    for (const auto& val : *optValues) {
+                const auto &optValues = std::get<2>(sample);
+                if (optValues)
+                {
+                    for (const auto &val : *optValues)
+                    {
                         sampleMsg.add_values(val);
                     }
                 }
 
                 std::string serializedSample;
-                if (!sampleMsg.SerializeToString(&serializedSample)) {
+                if (!sampleMsg.SerializeToString(&serializedSample))
+                {
                     std::cerr << "Protobuf-Serialisierung fehlgeschlagen!" << std::endl;
                     continue;
                 }
@@ -461,87 +559,113 @@ private:
         }
     }
 
+    void write(std::atomic<int> &dataPointsInSampleQue, std::mutex &jsonMutex)
+    {
 
-    void write(std::atomic<int> &dataPointsInSampleQue, std::mutex& jsonMutex) {
-
-        if(verbose) {
+        if (verbose)
+        {
             std::cout << "Writer startet" << std::endl;
         }
-        if(measurement->dataDestination == DataDestination::WS) {
-            if(measurement->format == FormatType::JSON) {
+        if (measurement->dataDestination == DataDestination::WS)
+        {
+            if (measurement->format == FormatType::JSON)
+            {
                 write_JsonObject(dataPointsInSampleQue, jsonMutex);
             }
-            else if (measurement->format == FormatType::CSV) {
+            else if (measurement->format == FormatType::CSV)
+            {
                 write_CsvBatch(dataPointsInSampleQue, jsonMutex);
             }
-            else if(measurement->format == FormatType::BINARY) {
+            else if (measurement->format == FormatType::BINARY)
+            {
                 write_ProtobufSamples(dataPointsInSampleQue, jsonMutex);
             }
         }
-        else if (measurement->dataDestination == DataDestination::LOCALFILE) {
-            if(!measurement->filePath.empty()) {
-                if(measurement->format == FormatType::CSV) {
+        else if (measurement->dataDestination == DataDestination::LOCALFILE)
+        {
+            if (!measurement->filePath.empty())
+            {
+                if (measurement->format == FormatType::CSV)
+                {
                     write_csv(dataPointsInSampleQue);
                 }
-                else if(measurement->format == FormatType::JSON) {
+                else if (measurement->format == FormatType::JSON)
+                {
                     write_json(dataPointsInSampleQue);
                 }
             }
-            else {
+            else
+            {
                 write_console(dataPointsInSampleQue);
             }
         }
 
-        if(verbose) {
+        if (verbose)
+        {
             std::cout << "Schreiben beendet" << std::endl;
         }
     }
 
 public:
-    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T>& handle, std::atomic<int>& dataPointsInSampleQue, std::queue<nlohmann::json>& jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
-        :handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle) {
+    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue, std::queue<nlohmann::json> &jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
+        : handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle)
+    {
         std::cout << std::fixed << std::setprecision(3);
 
         // Seperation by data destination
-        if(measurement->dataDestination == DataDestination::WS) {
-            if(measurement->format == FormatType::JSON) {
+        if (measurement->dataDestination == DataDestination::WS)
+        {
+            if (measurement->format == FormatType::JSON)
+            {
                 HeaderJSON = createJsonObject(measurement->uuids);
             }
         }
-        else if(measurement->dataDestination == DataDestination::LOCALFILE) {
-            if(!measurement->filePath.empty()) {
+        else if (measurement->dataDestination == DataDestination::LOCALFILE)
+        {
+            if (!measurement->filePath.empty())
+            {
                 outFile.open(measurement->filePath, std::ios::app);
-                if (!outFile) {
+                if (!outFile)
+                {
                     throw std::ios_base::failure("Error opening file: " + measurement->filePath);
-                }// Write header
-                else if(measurement->format == FormatType::CSV) {
+                } // Write header
+                else if (measurement->format == FormatType::CSV)
+                {
                     outFile << "Timestamp [s]" << " , ";
-                    for(size_t i = 0; i < measurement->uuids.size(); ++i) {
+                    for (size_t i = 0; i < measurement->uuids.size(); ++i)
+                    {
                         outFile << measurement->uuids[i];
-                        if(i < measurement->uuids.size()-1) {
+                        if (i < measurement->uuids.size() - 1)
+                        {
                             outFile << " , ";
                         }
                     }
                     outFile << "\n";
                 }
-                else if(measurement->format == FormatType::JSON) {
+                else if (measurement->format == FormatType::JSON)
+                {
                     outFile << "{\"metadata\": {";
                     outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
-                    for (size_t i = 0; i < measurement->uuids.size(); ++i) {
+                    for (size_t i = 0; i < measurement->uuids.size(); ++i)
+                    {
                         outFile << "\"" << "UUID" << "\"" << ": " << "\"" << measurement->uuids[i] << "\"";
-                        if (i < measurement->uuids.size() - 1) {
+                        if (i < measurement->uuids.size() - 1)
+                        {
                             outFile << ",";
                         }
                     }
-                    outFile << "}" << "]";  // optional metadata: measurement, host
+                    outFile << "}" << "]"; // optional metadata: measurement, host
                     outFile << "},";
                 }
             }
-            else {
+            else
+            {
                 std::cout << "Timestamp [s]" << " , ";
-                for (size_t i = 0; i < measurement->uuids.size(); ++i) {
+                for (size_t i = 0; i < measurement->uuids.size(); ++i)
+                {
                     std::cout << measurement->uuids[i] << " [V]";
-                    if (i < measurement->uuids.size() - 1) {
+                    if (i < measurement->uuids.size() - 1)
+                    {
                         std::cout << " , ";
                     }
                 }
@@ -553,40 +677,56 @@ public:
         writerThread = std::thread(&Writer::write, this, std::ref(dataPointsInSampleQue), std::ref(jsonMutex));
     }
 
-    ~Writer() {
-        if(!measurement->filePath.empty()) {
-            if(measurement->format == FormatType::JSON) {
+    ~Writer()
+    {
+        if (!measurement->filePath.empty())
+        {
+            if (measurement->format == FormatType::JSON)
+            {
                 outFile << "}";
             }
             // write Trailer
             outFile.flush();
             outFile.close();
         }
-        else std::cout << "Schreiben beendet" << std::endl;
+        else
+            std::cout << "Schreiben beendet" << std::endl;
 
-        if(verbose) {
+        if (verbose)
+        {
             std::cout << "Writer destroyed" << std::endl;
         }
-        if(writerThread.joinable()) {
+        if (writerThread.joinable())
+        {
             writerThread.join();
         }
     }
-
 };
 
-//FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Closing the Programm and WS Connections savely:
 
-void customSignalHandler(int signal) {
-    if(signal == SIGINT) {
+// TODO :  Make this cleaner, this is a mess
+/**
+ * @brief stop programm with SIGINT
+ */
+void customSignalHandler(int signal)
+{
+    if (signal == SIGINT)
+    {
         std::cout << "\ngot SIGINT. Stopping the programm..." << std::endl;
         running = false;
     }
 }
 
-void ExitProgramm() {
-    if(WEBSOCKET_ACTIVE) {
+/**
+ * @brief Close all WS threads, WS and resetDevices
+ */
+void ExitProgramm()
+{
+    if (WEBSOCKET_ACTIVE)
+    {
         crowApp.stop();
     }
     resetDevices();
@@ -595,16 +735,24 @@ void ExitProgramm() {
     std::cout << "Programm was closed correctly, all threads closed" << std::endl;
 }
 
-void CloseWSConnection() {
-    // std::cout << "CloseWSConnectionStarted" << std::endl;
+/**
+ * @brief stops WS threads, reset Devices, set startWriter to true
+ */
+void CloseWSConnection()
+{
     stopAndJoinWSConnectionThreads();
     resetDevices();
     startWriter = true;
 }
-
-void resetDevices() {
-    if(sampler.has_value()) {
-        for (auto &device : sampler->sampleDevices) {
+/**
+ * @brief Stops all devices, reset sampler, clear devices and device Manager, Runs ws and sample queues
+ */
+void resetDevices()
+{
+    if (sampler.has_value())
+    {
+        for (auto &device : sampler->sampleDevices)
+        {
             device.first->send(Omniscope::Stop{});
         }
     }
@@ -612,77 +760,108 @@ void resetDevices() {
     sampler.reset();
     devices.clear();
     deviceManager.clearDevices();
-    //captureData.clear();
     dataPointsInSampleQue = 0;
-    clearAllDeques();
+    clearAllQueues();
 }
+/**
+ * @brief clear sampleQueue, wsPackagesQueue, wsBinaryPackagesQueue, wsCSVPackagesQueue
+ */
+void clearAllQueues()
+{
 
-void clearAllDeques() {
-
-    if(!sampleQueue.empty()) {
+    if (!sampleQueue.empty())
+    {
         std::lock_guard<std::mutex> lock(sampleQueueMutex);
         clearQueue(sampleQueue);
     }
-    if(!wsPackagesQueue.empty()) {
+    if (!wsPackagesQueue.empty())
+    {
         std::lock_guard<std::mutex> lock(wsDataQueueMutex);
         clearQueue(wsPackagesQueue);
     }
-    if(!wsBinaryPackagesQueue.empty()) {
+    if (!wsBinaryPackagesQueue.empty())
+    {
         std::lock_guard<std::mutex> lock(wsDataQueueMutex);
         clearQueue(wsBinaryPackagesQueue);
     }
-    if(!wsCSVPackagesQueue.empty()) {
+    if (!wsCSVPackagesQueue.empty())
+    {
         std::lock_guard<std::mutex> lock(wsDataQueueMutex);
         clearQueue(wsCSVPackagesQueue);
     }
 }
-
-void stopAndJoinWSConnectionThreads() {
-    if(wsDataQueueThreadActive) {
+/**
+ * @brief stop and joins wsDataQueueThread, sendDataviaWSThread
+ */
+void stopAndJoinWSConnectionThreads()
+{
+    if (wsDataQueueThreadActive)
+    {
         wsDataQueueThreadActive = false;
-        if(wsDataQueueThread.joinable()) {
+        if (wsDataQueueThread.joinable())
+        {
             wsDataQueueThread.join();
-            if(verbose) {
+            if (verbose)
+            {
                 std::cout << "dataThread joined" << std::endl;
             }
         }
     }
-    if(sendDataviaWSThreadActive) {
+    if (sendDataviaWSThreadActive)
+    {
         sendDataviaWSThreadActive = false;
-        if(sendDataviaWSThread.joinable()) {
+        if (sendDataviaWSThread.joinable())
+        {
             sendDataviaWSThread.join();
-            if(verbose) {
+            if (verbose)
+            {
                 std::cout << "sendDataThread joined" << std::endl;
             }
         }
     }
 }
-
-void stopAndJoinWSThread() {
-    if(WEBSOCKET_ACTIVE) {
+/** @brief stops and joins websocket thread */
+void stopAndJoinWSThread()
+{
+    if (WEBSOCKET_ACTIVE)
+    {
         WEBSOCKET_ACTIVE = false;
-        if(websocket.joinable()) {
+        if (websocket.joinable())
+        {
             websocket.join();
-            if(verbose) {
+            if (verbose)
+            {
                 std::cout << "Websocket thread was joined" << std::endl;
             }
         }
     }
 }
 
-//CONNECT_DEVICES//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-void initDevices() { // Initalize the connected devices
+// CONNECT_DEVICES//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief Initalize OmnAIScope devices connected via USB
+ * gets available devices
+ * sets LED color
+ * gets information about calibration
+ *
+ * Devices is a global variable
+ */
+void initDevices()
+{
     constexpr int VID = 0x2e8au;
     constexpr int PID = 0x000au;
-    if(verbose) {
-        std::cout << "Geraete werden gesucht" << std::endl;
+    if (verbose)
+    {
+        std::cout << "Search for devices" << std::endl;
     }
 
     devices = deviceManager.getDevices(VID, PID);
-    for(auto& device : devices) {
-        auto metaDataCb = [&](auto const &msg) {
-            if (std::holds_alternative<Omniscope::MetaData>(msg)) {
+    for (auto &device : devices)
+    {
+        auto metaDataCb = [&](auto const &msg)
+        {
+            if (std::holds_alternative<Omniscope::MetaData>(msg))
+            {
                 parseDeviceMetaData(std::get<Omniscope::MetaData>(msg), device);
             }
         };
@@ -699,99 +878,135 @@ void initDevices() { // Initalize the connected devices
         device->send(Omniscope::GetMetaData{});
     }
 }
-
-void searchDevices() {
-    if(!sampler.has_value()) {
+/**
+ * @brief cleans up old data, init new devices, pause between checks
+ */
+void searchDevices()
+{
+    if (!sampler.has_value())
+    {
         devices.clear();
         deviceManager.clearDevices();
-        initDevices(); // check if devices are connected
-        std::this_thread::sleep_for(std::chrono::seconds(2)); // Pause between checks
+        initDevices();
+        std::this_thread::sleep_for(std::chrono::seconds(2)); // TODO: This should be not needed, test if this can be deleted
     }
 }
-
-void selectDevices(std::vector<std::string> &UUID) {
-    if(!devices.empty() && !sampler.has_value()) { // move the device in the sampler
-        std::cout <<"Devices where found and are emplaced"<< std::endl;
-        for(const auto &device : devices) {
+/**
+ * @brief Erase not selected devices per UUIDs from deviceManager
+ * @param UUID vector of selected UUIDs
+ */
+void selectDevices(std::vector<std::string> &UUID)
+{
+    if (!devices.empty() && !sampler.has_value())
+    {   // move the device in the sampler
+        std::cout << "Devices where found and are emplaced" << std::endl;
+        for (const auto &device : devices)
+        {
             devices.erase(
                 std::remove_if(
                     devices.begin(),
                     devices.end(),
-            [&UUID](const std::shared_ptr<OmniscopeDevice>& device) {
+                    [&UUID](const std::shared_ptr<OmniscopeDevice> &device)
+            {
                 return std::find(UUID.begin(), UUID.end(), device->getId()->serial) == UUID.end();
             }),
-            devices.end()
-            );
+            devices.end());
         }
-        if(!devices.empty()) {
+        if (!devices.empty())
+        {
             sampler.emplace(deviceManager, std::move(devices));
-            if(sampler.has_value()) {
-                for (auto &device : sampler->sampleDevices) {
+            if (sampler.has_value())
+            {
+                for (auto &device : sampler->sampleDevices)
+                {
                     device.first->send(Omniscope::Start{});
                 }
             }
         }
     }
 }
-
+/**
+ * @brief check if scope is calibrated via given metaData string
+ */
 void parseDeviceMetaData(Omniscope::MetaData metaData,
-                         std::shared_ptr<OmniscopeDevice> &device) {
-    try {
+                         std::shared_ptr<OmniscopeDevice> &device)
+{
+    try
+    {
         nlohmann::json metaJson = nlohmann::json::parse(metaData.data);
-        if(verbose) {
+        if (verbose)
+        {
             fmt::println("{}", metaJson.dump());
         }
         device->setScale(std::stod(metaJson["scale"].dump()));
         device->setOffset(std::stod(metaJson["offset"].dump()));
         device->setEgu(metaJson["egu"]);
-    } catch (...) {
-        if(verbose) {
+    }
+    catch (...)
+    {
+        if (verbose)
+        {
             fmt::print("This Scope is not calibrated: {}", metaData.data);
         }
     }
 }
 
-//DATAHANDELING///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DATAHANDELING///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief Starts the QueueFormatter, waits till formatter stops, starts writer with given measurement presets
+ */
 
-void printOrWriteData(std::shared_ptr<Measurement> measurement) {
-
-    if (sampler.has_value()) {
+/* This is buggy: writer is only destructed on programm exit --> problems with ws, writer cannot start befor batch is transformed --> Makes it all a lot slower
+ */
+void printOrWriteData(std::shared_ptr<Measurement> measurement)
+{
+    if (sampler.has_value())
+    {
         captureData.clear();
         int vectorSize = 0;
 
-        while (vectorSize < 100000) {
-            if (sampler.has_value()) {
-                sampler->copyOut(captureData);
+        while (vectorSize < 100000)
+        {
+            if (sampler.has_value())
+            {
+                sampler->copyOut(captureData); // all copy out data is cleared from sampler by copyOut function
             }
-            if (captureData.empty()) {
+            if (captureData.empty())
+            {
                 return;
             }
-
             auto it = captureData.begin();
-            auto& [updatedId, updatedDeviceData] = *it;
+            auto &[updatedId, updatedDeviceData] = *it;
             vectorSize = static_cast<int>(updatedDeviceData.size());
         }
 
-        DequeFormatter* dequeFormatter = new DequeFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
-        delete dequeFormatter;
+        QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
+        delete queueFormatter;
 
-        if (startWriter) {
-            Writer* writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
+        if (startWriter)
+        {
+            Writer *writi = new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
             startWriter = false;
         }
     }
 }
-
-void printDevices() {
+/**
+ * @brief Prints devices from global device variable, sets running = false after that --> should stop application
+ */
+void printDevices()
+{
 
     // get IDs
-    if(devices.empty()) {
+    if (devices.empty())
+    {
         std::cout << "No devices are connected. Please connect a device and start again" << std::endl;
     }
-    else {
+    else
+    {
         std::cout << "The following devices are connected:" << std::endl;
-        for(const auto& device : devices) {
-            std::string deviceId = device -> getId()->serial;
+        for (const auto &device : devices)
+        {
+            std::string deviceId = device->getId()->serial;
             fmt::print("{}Device: {}\033[0m\n", rgbToAnsi(uuidToColor(deviceId)), deviceId);
         }
         devices.clear();
@@ -799,114 +1014,141 @@ void printDevices() {
         running = false;
     }
 }
-
-nlohmann::json getDevicesAsJson(bool allInfo) {
+/**
+ * @brief returns device info as JSON object from global devices variable
+ */
+nlohmann::json getDevicesAsJson(bool allInfo)
+{
     nlohmann::json responseJson;
 
-    if (devices.empty()) {
+    if (devices.empty())
+    {
         return {
-            { "error", "No devices are connected. Please connect a device and start again." }
-        };
+            {"error", "No devices are connected. Please connect a device and start again."}};
     }
 
-    auto versionToJson = [](auto v) {
+    auto versionToJson = [](auto v)
+    {
         return nlohmann::json{
-            { "major", v.major },
-            { "minor", v.minor },
-            { "patch", v.patch }
-        };
+            {"major", v.major},
+            {"minor", v.minor},
+            {"patch", v.patch}};
     };
 
     nlohmann::json response{
-        { "devices", nlohmann::json::array() },
-        { "colors",  nlohmann::json::array() }
-    };
+        {"devices", nlohmann::json::array()},
+        {"colors", nlohmann::json::array()}};
 
-    if (allInfo) {
+    if (allInfo)
+    {
         response["hardwareInfo"] = nlohmann::json::array();
         response["firmwareInfo"] = nlohmann::json::array();
-        response["offset"]       = nlohmann::json::array();
-        response["scale"]        = nlohmann::json::array();
+        response["offset"] = nlohmann::json::array();
+        response["scale"] = nlohmann::json::array();
     }
 
     /**
      * Iteration over the devices to extract all infos
      */
-    for (const auto& dev : devices)
+    for (const auto &dev : devices)
     {
-        const auto& id      = dev->getId().value();
+        const auto &id = dev->getId().value();
         const std::string uuid = dev->getId()->serial;
-        const auto [r,g,b]  = uuidToColor(uuid);
+        const auto [r, g, b] = uuidToColor(uuid);
 
-        response["devices"].push_back({ { "UUID", uuid } });
-        response["colors"].push_back ({{ "color", { { "r", r }, { "g", g }, { "b", b } } }});
+        response["devices"].push_back({{"UUID", uuid}});
+        response["colors"].push_back({{"color", {{"r", r}, {"g", g}, {"b", b}}}});
 
-        if (!allInfo) continue;
+        if (!allInfo)
+            continue;
 
-        response["hardwareInfo"].push_back( versionToJson(id.hwVersion) );
-        response["firmwareInfo"].push_back( versionToJson(id.swVersion) );
+        response["hardwareInfo"].push_back(versionToJson(id.hwVersion));
+        response["firmwareInfo"].push_back(versionToJson(id.swVersion));
 
-        if (auto o = dev->getOffset(); o) response["offset"].push_back(*o);
-        if (auto s = dev->getScale();  s) response["scale"].push_back(*s);
+        if (auto o = dev->getOffset(); o)
+            response["offset"].push_back(*o);
+        if (auto s = dev->getScale(); s)
+            response["scale"].push_back(*s);
     }
 
     devices.clear();
     deviceManager.clearDevices();
     return response;
 }
-
-std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string& uuid) {
+/**
+ * @brief Transform given uuids via hashing into rgb colors
+ */
+std::tuple<uint8_t, uint8_t, uint8_t> uuidToColor(const std::string &uuid)
+{
     // std::hash anwenden
     size_t hashValue = std::hash<std::string> {}(uuid);
 
     // Die ersten 3 Bytes extrahieren
-    uint8_t r = (hashValue & 0xFF);         // Erste 8 Bits
-    uint8_t g = (hashValue >> 8) & 0xFF;   // Zweite 8 Bits
-    uint8_t b = (hashValue >> 16) & 0xFF;  // Dritte 8 Bits
+    uint8_t r = (hashValue & 0xFF);       // Erste 8 Bits
+    uint8_t g = (hashValue >> 8) & 0xFF;  // Zweite 8 Bits
+    uint8_t b = (hashValue >> 16) & 0xFF; // Dritte 8 Bits
 
     return {r, g, b};
 }
-
-std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
-    auto [r, g, b] = rgb; // Tupel entpacken
-    return fmt::format("\033[38;2;{};{};{}m", r, g, b); // ANSI-Farbcode generieren
+/**
+ * Transform rgb colors to ANSI color code
+ */
+std::string rgbToAnsi(const std::tuple<uint8_t, uint8_t, uint8_t> &rgb)
+{
+    auto [r, g, b] = rgb;
+    return fmt::format("\033[38;2;{};{};{}m", r, g, b);
 }
-
-std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t>& rgb) {
-    auto [r, g, b] = rgb; // Tupel entpacken
-    return fmt::format("{};{};{}", r, g, b); // ANSI-Farbcode generieren
+/**
+ * @brief Transform rgb colors to string format
+ */
+std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t> &rgb)
+{
+    auto [r, g, b] = rgb;
+    return fmt::format("{};{};{}", r, g, b);
 }
-
-double round_to(double value, int decimals) {
+/**
+ * @brief Round value to specific decimals place
+ * @param value to round
+ * @param decimal places rounded
+ */
+double round_to(double value, int decimals)
+{
     double factor = std::pow(10.0, decimals);
     return std::round(value * factor) / factor;
 }
 
 /// WEBSOCKET HANDLING ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-void StartWS(int &port) {
+/**
+ * @brief Start Crow WS on given port
+ * Provides API endpoints for information and WS communication to start a measurement
+ * @param port to start WS on
+ */
+void StartWS(int &port)
+{
     std::mutex mtx;
-    std::unordered_set<crow::websocket::connection*> users;
-    std::unordered_map<crow::websocket::connection*, std::atomic<bool>> thread_control_flags;
+    std::unordered_set<crow::websocket::connection *> users;
+    std::unordered_map<crow::websocket::connection *, std::atomic<bool>> thread_control_flags;
     bool json_temp = false;
     bool ws_temp = true;
     std::string file_temp = " ";
 
-    auto& cors = crowApp.get_middleware<crow::CORSHandler>();
+    auto &cors = crowApp.get_middleware<crow::CORSHandler>();
 
     cors
     .global()
-    .origin("*") // Erlaube Anfragen von allen Domains (Browser-freundlich)
-    .headers("Origin", "Content-Type", "Accept", "X-Custom-Header", "Authorization") // Alle relevanten Header
-    .methods("POST"_method, "GET"_method, "OPTIONS"_method) // Erlaube POST, GET und OPTIONS (für Preflight)
-    .max_age(600); // Cache Preflight-Antworten für 10 Minuten
-    // clang-format on
+    .origin("*")
+    .headers("Origin", "Content-Type", "Accept", "X-Custom-Header", "Authorization")
+    .methods("POST"_method, "GET"_method, "OPTIONS"_method)
+    .max_age(600);
 
     WEBSOCKET_ACTIVE = true;
 
-    // API
+    /**
+     * @brief endpoint to receive UUIDs and colors of connected devices
+     */
     CROW_ROUTE(crowApp, "/UUID")
-    ([]() {
+    ([]()
+    {
         searchDevices();
         nlohmann::json devicesJson = getDevicesAsJson(false);
         return crow::response(devicesJson.dump());
@@ -916,46 +1158,55 @@ void StartWS(int &port) {
      * endpoint to receive further information from the backend
      */
     CROW_ROUTE(crowApp, "/v1/get_info")
-    ([]() {
+    ([]()
+    {
         searchDevices();
         nlohmann::json devicesJson = getDevicesAsJson(true);
         return crow::response(devicesJson.dump());
     });
-
+    /**
+     * @brief Endpoint to receive help for the websocket
+     */
     CROW_ROUTE(crowApp, "/help")
-    ([]() {
-        return std::string("Starting the websocket under ip/ws. Set one or multiply UUIDs by writing them after the hello message. \n")
-               + "The last input can be a sampling rate. The default sampling Rate is 60 Sa/s.\n"
-               + "The sampling Rate cant be higher than 100.000 Sa/s. Press enter to start the measurement.";
+    ([]()
+    {
+        return std::string("Starting the websocket under ip/ws. Set one or multiply UUIDs by writing them after the hello message. \n") + "The last input can be a sampling rate. The default sampling Rate is 60 Sa/s.\n" + "The sampling Rate cant be higher than 100.000 Sa/s. Press enter to start the measurement.";
     });
 
-    // OPTIONS-Endpunkt, um Preflight-Anfragen zu behandeln
-    CROW_ROUTE(crowApp, "/cors").methods("OPTIONS"_method)([]() {
-        return crow::response(204); // Antwort ohne Inhalt
+    CROW_ROUTE(crowApp, "/cors").methods("OPTIONS"_method)([]()
+    {
+        return crow::response(204);
     });
 
-    // Websocket
+    /**
+     * @brief websocket endpoint to receive measurement data from devices
+     * While this is open the API endpoints cannot be used
+     */
+    // TODO : Endpoint usage while WS connection is open
     CROW_WEBSOCKET_ROUTE(crowApp, "/ws")
-    .onopen([&](crow::websocket::connection& conn) {
+    .onopen([&](crow::websocket::connection &conn)
+    {
         websocketConnectionActive = true;
         CROW_LOG_INFO << "new websocket connection from " << conn.get_remote_ip();
         std::lock_guard<std::mutex> _(mtx);
         users.insert(&conn);
         conn.send_text("Hello, connection to websocket established. To start a measurement send the wished UUID, optional send a sampling rate between 10 and 100000");
     })
-    .onclose([&](crow::websocket::connection& conn, const std::string& reason) {
+    .onclose([&](crow::websocket::connection &conn, const std::string &reason)
+    {
         websocketConnectionActive = false;
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
         CloseWSConnection();
         std::lock_guard<std::mutex> _(mtx);
         users.erase(&conn);
     })
-    .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
+    .onmessage([&](crow::websocket::connection &conn, const std::string &data, bool is_binary)
+    {
         CROW_LOG_INFO << "Received message: " << data;
         std::lock_guard<std::mutex> _(mtx);
         auto measurement = std::make_shared<Measurement>(parseWSDataToMeasurement(data));
         if(!measurement->uuids.empty()) {
-            clearAllDeques();
+            clearAllQueues();
 
             wsDataQueueThread = std::thread(processDeque, std::ref(conn), measurement);
             wsDataQueueThreadActive = true;
@@ -974,8 +1225,12 @@ void StartWS(int &port) {
 
     crowApp.port(port).multithreaded().run();
 }
-
-Measurement parseWSDataToMeasurement(const std::string& data) {
+/**
+ * @brief Parse given string on OmnAIScope UUIDs, sampling rate and format
+ * @return measurement object
+ */
+Measurement parseWSDataToMeasurement(const std::string &data)
+{
     std::istringstream iss(data);
     std::string token;
     Measurement measurement;
@@ -984,59 +1239,77 @@ Measurement parseWSDataToMeasurement(const std::string& data) {
 
     bool foundSamplingRate = false;
 
-    while (iss >> token) {
+    while (iss >> token)
+    {
         // Check if token is uuid
-        if (!token.empty() && token[0] == 'E') {
+        if (!token.empty() && token[0] == 'E')
+        {
             measurement.uuids.push_back(token);
         }
-        else if (std::all_of(token.begin(), token.end(), ::isdigit)) { //check if token is number
+        else if (std::all_of(token.begin(), token.end(), ::isdigit))
+        {   // check if token is number
             measurement.samplingRate = std::stoi(token);
             foundSamplingRate = true;
         }
-        else if (token == "csv") { // check if token is a format
+        else if (token == "csv")
+        {   // check if token is a format
             measurement.format = FormatType::CSV;
         }
-        else if (token == "json") {
+        else if (token == "json")
+        {
             measurement.format = FormatType::JSON;
         }
-        else if (token == "binary") {
+        else if (token == "binary")
+        {
             measurement.format = FormatType::BINARY;
         }
     }
     measurement.filePath = " ";
     return measurement;
 }
-
-void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement> measurement) {
-    while (running && websocketConnectionActive) {
-        if (measurement->format == FormatType::JSON) {
-            std::cout << "Format ist json" << std::endl;
+/**
+ * @brief Process data from wsdataqueue from writer into messages and send messages via websocket to client
+ */
+// TODO: Make this better
+void processDeque(crow::websocket::connection &conn, std::shared_ptr<Measurement> measurement)
+{
+    while (running && websocketConnectionActive)
+    {
+        if (measurement->format == FormatType::JSON)
+        {
             std::lock_guard<std::mutex> lock(wsDataQueueMutex);
-            if (!wsPackagesQueue.empty()) {
+            if (!wsPackagesQueue.empty())
+            {
                 nlohmann::ordered_json message;
                 message.update(wsPackagesQueue.front());
                 wsPackagesQueue.pop();
 
-                if (!measurement->uuids.empty()) {
+                if (!measurement->uuids.empty())
+                {
                     message["devices"] = nlohmann::json::array();
-                    for (const auto& uuid : measurement->uuids) {
+                    for (const auto &uuid : measurement->uuids)
+                    {
                         message["devices"].push_back(uuid);
                     }
                 }
                 conn.send_text(message.dump());
             }
         }
-        else if (measurement->format == FormatType::CSV) {
+        else if (measurement->format == FormatType::CSV)
+        {
             std::lock_guard<std::mutex> lock(wsDataQueueMutex);
-            if (!wsCSVPackagesQueue.empty()) {
+            if (!wsCSVPackagesQueue.empty())
+            {
                 std::string csvBatch = wsCSVPackagesQueue.front();
                 wsCSVPackagesQueue.pop();
                 conn.send_text(csvBatch);
             }
         }
-        else if (measurement->format == FormatType::BINARY) {
+        else if (measurement->format == FormatType::BINARY)
+        {
             std::lock_guard<std::mutex> lock(wsDataQueueMutex);
-            if (!wsBinaryPackagesQueue.empty()) {
+            if (!wsBinaryPackagesQueue.empty())
+            {
                 std::string binaryBatch = wsBinaryPackagesQueue.front();
                 wsBinaryPackagesQueue.pop();
                 conn.send_binary(binaryBatch);
@@ -1044,8 +1317,8 @@ void processDeque(crow::websocket::connection& conn, std::shared_ptr<Measurement
         }
     }
 
-    if (verbose) {
+    if (verbose)
+    {
         std::cout << "Processdeque stopped" << std::endl;
     }
 }
-
