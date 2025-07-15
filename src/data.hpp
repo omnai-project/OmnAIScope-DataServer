@@ -49,7 +49,6 @@ std::queue<std::string> wsBinaryPackagesQueue;
 std::thread wsDataQueueThread;
 std::thread sendDataviaWSThread;
 std::atomic<bool> WEBSOCKET_ACTIVE{false};
-std::atomic<bool> wsDataQueueThreadActive{false};
 std::atomic<bool> websocketConnectionActive{false};
 crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
@@ -76,7 +75,8 @@ void ExitProgramm();
 void StopMeasurementClean(ControlWriter &);
 std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t> &rgb);
 nlohmann::json getDevicesAsJson(bool);
-void processDeque(crow::websocket::connection &, std::shared_ptr<Measurement>);
+Measurement parseWSDataToMeasurement(const std::string &data);
+void processDeque(std::stop_token, crow::websocket::connection &, std::shared_ptr<Measurement>);
 template <typename T, typename Container = std::deque<T>>
 void clearQueue(std::queue<T, Container> &q)
 {
@@ -848,18 +848,6 @@ void clearAllQueues()
  */
 void stopAndJoinWSConnectionThreads()
 {
-    if (wsDataQueueThreadActive)
-    {
-        wsDataQueueThreadActive = false;
-        if (wsDataQueueThread.joinable())
-        {
-            wsDataQueueThread.join();
-            if (verbose)
-            {
-                std::cout << "dataThread joined" << std::endl;
-            }
-        }
-    }
     if (sendDataviaWSThreadActive)
     {
         sendDataviaWSThreadActive = false;
@@ -1175,7 +1163,12 @@ struct Command {
     crow::websocket::connection* conn = nullptr; 
 };
 
-TSQueue<Command> cmdQueue; // command queue for onmessage 
+struct WSContext {
+    std::shared_ptr<Measurement> currentMeasurement; 
+    std::jthread sendThread; 
+}; 
+WSContext wsCtx; 
+TSQueue<Command> cmdQueue; 
 Command parseCommand(const std::string&, crow::websocket::connection&); 
 
 /**
@@ -1216,6 +1209,88 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
     return cmd;
 
 }
+
+/** 
+* @brief Starts new measurement with given presets 
+* Sends data via WS connection 
+*/
+void startMeasurement(Command & cmd, ControlWriter& ctrl, WSContext& wsCtx){
+    wsCtx.currentMeasurement = std::make_shared<Measurement>(); 
+    wsCtx.currentMeasurement->dataDestination = DataDestination::WS; 
+    wsCtx.currentMeasurement->format = cmd.startMetaData.format; 
+    wsCtx.currentMeasurement->samplingRate = cmd.startMetaData.samplingRate; 
+    wsCtx.currentMeasurement->uuids = cmd.startMetaData.uuids; 
+    wsCtx.currentMeasurement->filePath = " "; 
+
+    clearAllQueues();
+
+    wsCtx.sendThread = std::jthread(processDeque, std::ref(*cmd.conn), wsCtx.currentMeasurement); 
+    if(verbose) {
+        cmd.conn->send_text("Sending data was started via the client.");
+    }
+
+    sendDataviaWSThread = std::thread(&Measurement::start, wsCtx.currentMeasurement, std::ref(ctrl));
+    sendDataviaWSThreadActive = true;
+    std::cout << "Measurement was set" << std::endl;
+
+}
+
+/**
+ * @brief Process data from wsdataqueue from writer into messages and send messages via websocket to client
+ */
+// TODO: Make this better
+void processDeque(std::stop_token stopToken, crow::websocket::connection &conn, std::shared_ptr<Measurement> measurement)
+{
+    while (!stopToken.stop_requested())
+    {
+        if (measurement->format == FormatType::JSON)
+        {
+            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+            if (!wsPackagesQueue.empty())
+            {
+                nlohmann::ordered_json message;
+                message.update(wsPackagesQueue.front());
+                wsPackagesQueue.pop();
+
+                if (!measurement->uuids.empty())
+                {
+                    message["devices"] = nlohmann::json::array();
+                    for (const auto &uuid : measurement->uuids)
+                    {
+                        message["devices"].push_back(uuid);
+                    }
+                }
+                conn.send_text(message.dump());
+            }
+        }
+        else if (measurement->format == FormatType::CSV)
+        {
+            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+            if (!wsCSVPackagesQueue.empty())
+            {
+                std::string csvBatch = wsCSVPackagesQueue.front();
+                wsCSVPackagesQueue.pop();
+                conn.send_text(csvBatch);
+            }
+        }
+        else if (measurement->format == FormatType::BINARY)
+        {
+            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
+            if (!wsBinaryPackagesQueue.empty())
+            {
+                std::string binaryBatch = wsBinaryPackagesQueue.front();
+                wsBinaryPackagesQueue.pop();
+                conn.send_binary(binaryBatch);
+            }
+        }
+    }
+
+    if (verbose)
+    {
+        std::cout << "Processdeque stopped" << std::endl;
+    }
+}
+
 
 /**
  * @brief Start Crow WS on given port
@@ -1308,24 +1383,8 @@ void StartWS(int &port, ControlWriter &controlWriter)
     .onmessage([&](crow::websocket::connection &conn, const std::string &data, bool is_binary)
     {
         CROW_LOG_INFO << "Received message: " << data;
-<<<<<<< HEAD
         websocketConnectionActive = true; 
         // TODO: Implement saving functionality as cmd 
-=======
-        // Idee : --save option beim starten der Messung damit die gespeichert wird ? Wie würde ich denn dann einen stop befehl senden ? 
-        // extra queue die alle daten hat, beim speichern wird die einmal durch den writer gejagt dann das output file genommen und über ws übergeben
-        // stop befehl könnte über cmd handler geregelt werden 
-
-        // ParseWsDataToMeasurement wird zu einem CMD Handler --> Was wird eigentlich gerade gesendet? Was ist zu tun ? Hat zugriff auf config in der die aktuellen states liegen
-        // bpsw. ist messung schon am laufen, wurde gestoppt , speichern beendet ?
-        
-        // Später Messung durch command handler während laufzeit steuerbar --> Das nen riesen aufwand, speichern sollte einfacher sein 
-
-        // Schritt 1 : auslagern der aktuellen funktionalität in cmd handler 
-        // Schritt 2 : Implementierung der stop funktionalität 
-        // Schritt 3: Implementierung der Speicherfunktionalität --> Das nochmal in kleinere Schritte unterteilen
-
->>>>>>> cbb048f (WIP: Fix stopping CMD Worker)
         cmdQueue.push(parseCommand(data, &conn)); 
     }); 
 
@@ -1334,7 +1393,6 @@ void StartWS(int &port, ControlWriter &controlWriter)
     * @param stop_token stops when stop_requested 
     */
     cmdWorker = std::jthread([&](std::stop_token stop_token){
-        std::shared_ptr<Measurement> currentMeasurement; 
 
             while(!stop_token.stop_requested()){
                 Command cmd = cmdQueue.pop(); 
@@ -1342,38 +1400,24 @@ void StartWS(int &port, ControlWriter &controlWriter)
                 switch (cmd.type){
                     case CmdType::START: {
                         websocketConnectionActive = true; 
-                        if(currentMeasurement){
+                        if(wsCtx.currentMeasurement){
                             cmd.conn->send_text(R"({"type":"error","msg":"already running"})");
                             break;
                         }
-                        
-                        currentMeasurement = std::make_shared<Measurement>(); 
-                        currentMeasurement->dataDestination = DataDestination::WS; 
-                        currentMeasurement->format = cmd.startMetaData.format; 
-                        currentMeasurement->samplingRate = cmd.startMetaData.samplingRate; 
-                        currentMeasurement->uuids = cmd.startMetaData.uuids; 
-                        currentMeasurement->filePath = " "; 
-
-                        clearAllQueues();
-
-                        wsDataQueueThread = std::thread(processDeque, std::ref(*cmd.conn), currentMeasurement);
-                        wsDataQueueThreadActive = true;
-                        if(verbose) {
-                            cmd.conn->send_text("Sending data was started via the client.");
-                        }
-
-                        sendDataviaWSThread = std::thread(&Measurement::start, currentMeasurement, std::ref(controlWriter));
-                        sendDataviaWSThreadActive = true;
-                        std::cout << "Measurement was set" << std::endl;
+                        else startMeasurement(cmd, controlWriter, wsCtx);
                         break;
                     }
                     case CmdType::STOP:{
-                        if (!currentMeasurement) {
+                        if (!wsCtx.currentMeasurement) {
                             cmd.conn->send_text(R"({"type":"error","msg":"not running"})");
                             break;
                         }
                         StopMeasurementClean(controlWriter); 
-                        currentMeasurement = nullptr;  
+                        if (wsCtx.sendThread.joinable()) {        
+                            wsCtx.sendThread.request_stop();      
+                            wsCtx.sendThread.join();             
+                        }
+                        wsCtx.currentMeasurement = nullptr;  
                     }
                 }
             }
@@ -1387,58 +1431,3 @@ void StartWS(int &port, ControlWriter &controlWriter)
     crowApp.port(port).multithreaded().run();
 }
 
-/**
- * @brief Process data from wsdataqueue from writer into messages and send messages via websocket to client
- */
-// TODO: Make this better
-void processDeque(crow::websocket::connection &conn, std::shared_ptr<Measurement> measurement)
-{
-    while (running && websocketConnectionActive)
-    {
-        if (measurement->format == FormatType::JSON)
-        {
-            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
-            if (!wsPackagesQueue.empty())
-            {
-                nlohmann::ordered_json message;
-                message.update(wsPackagesQueue.front());
-                wsPackagesQueue.pop();
-
-                if (!measurement->uuids.empty())
-                {
-                    message["devices"] = nlohmann::json::array();
-                    for (const auto &uuid : measurement->uuids)
-                    {
-                        message["devices"].push_back(uuid);
-                    }
-                }
-                conn.send_text(message.dump());
-            }
-        }
-        else if (measurement->format == FormatType::CSV)
-        {
-            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
-            if (!wsCSVPackagesQueue.empty())
-            {
-                std::string csvBatch = wsCSVPackagesQueue.front();
-                wsCSVPackagesQueue.pop();
-                conn.send_text(csvBatch);
-            }
-        }
-        else if (measurement->format == FormatType::BINARY)
-        {
-            std::lock_guard<std::mutex> lock(wsDataQueueMutex);
-            if (!wsBinaryPackagesQueue.empty())
-            {
-                std::string binaryBatch = wsBinaryPackagesQueue.front();
-                wsBinaryPackagesQueue.pop();
-                conn.send_binary(binaryBatch);
-            }
-        }
-    }
-
-    if (verbose)
-    {
-        std::cout << "Processdeque stopped" << std::endl;
-    }
-}
