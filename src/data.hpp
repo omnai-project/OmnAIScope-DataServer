@@ -17,6 +17,7 @@
 #include "crow.h"
 #include "crow/middlewares/cors.h"
 #include "sample.pb.h"
+#include <optional>
 
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -52,7 +53,6 @@ std::atomic<bool> WEBSOCKET_ACTIVE{false};
 std::atomic<bool> websocketConnectionActive{false};
 crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
-bool sendDataviaWSThreadActive = false;
 static std::atomic<int> dataPointsInSampleQue(0);
 static int Datenanzahl(0);
 static bool startWriter = true;
@@ -69,7 +69,6 @@ double round_to(double, int);
 void sendDataStreamToWS(std::vector<std::string> &, std::string &, bool &, bool &);
 void resetDevices();
 void clearAllQueues();
-void stopAndJoinWSConnectionThreads();
 void stopAndJoinWSThread();
 void ExitProgramm();
 void StopMeasurementClean(ControlWriter &);
@@ -226,7 +225,8 @@ public:
         : uuids(uuids), samplingRate(samplingRate), format(fmt), dataDestination(destination), filePath(filePath) {}
     Measurement() = default;
     ~Measurement() {}
-    void start(ControlWriter &controlWriter);
+    void start(std::stop_token stopToken, ControlWriter &controlWriter);
+    void startLocal(ControlWriter &controlWriter); 
 };
 
 // WRITER//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -676,7 +676,7 @@ public:
 
 class ControlWriter {
     public: 
-        void printOrWriteData(std::shared_ptr<Measurement> measurement);
+        void printOrWriteData(std::shared_ptr<Measurement> measurement, std::optional<std::stop_token> stopToken = std::nullopt);
         void stopWriter();   
 
     private: 
@@ -685,43 +685,44 @@ class ControlWriter {
 // FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     /**
-     * @brief Start a measurement with the Measurement object presets
+     * @brief Start a measurement on Websocket with the Measurement object presets
      */
-    void Measurement::start(ControlWriter &controlWriter)
+    void Measurement::start(std::stop_token stopToken, ControlWriter &controlWriter)
     {
         auto self = shared_from_this();
         searchDevices(); // Init Scopes
         selectDevices(self->uuids); // select only chosen devices
 
-        if (self->dataDestination == DataDestination::WS)
+        while (!stopToken.stop_requested())
         {
-            while (sendDataviaWSThreadActive)
-            {
-                controlWriter.printOrWriteData(self);     // process data from devices 
-            }
+            controlWriter.printOrWriteData(self, stopToken);  
         }
-        else
-        {
-            while (running)
+    }
+
+    void Measurement::startLocal(ControlWriter &controlWriter){
+        auto self = shared_from_this();
+        searchDevices(); // Init Scopes
+        selectDevices(self->uuids); // select only chosen devices
+        while (running)
             {
-                controlWriter.printOrWriteData(self);     // process data from devices 
+                controlWriter.printOrWriteData(self); 
             }
-            resetDevices();
-        }
+        resetDevices();
     }
     /**
     * @brief Starts the QueueFormatter, waits till formatter stops, starts writer with given measurement presets
     */
     /* This is buggy: writer is only destructed on programm exit --> problems with ws, writer cannot start befor batch is transformed --> Makes it all a lot slower
     */
-    void ControlWriter::printOrWriteData(std::shared_ptr<Measurement> measurement)
+    void ControlWriter::printOrWriteData(std::shared_ptr<Measurement> measurement, std::optional<std::stop_token> stopToken)
     {
         if (sampler.has_value())
         {
             captureData.clear();
             int vectorSize = 0;
 
-            while (vectorSize < 100000)
+            while (vectorSize < 100000 &&
+               !(stopToken && stopToken->stop_requested()))
             {
                 if (sampler.has_value())
                 {
@@ -735,6 +736,8 @@ class ControlWriter {
                 auto &[updatedId, updatedDeviceData] = *it;
                 vectorSize = static_cast<int>(updatedDeviceData.size());
             }
+            if (stopToken && stopToken->stop_requested())
+            return;     
 
             QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
             delete queueFormatter;
@@ -780,7 +783,6 @@ void ExitProgramm()
         crowApp.stop();
     }
     resetDevices();
-    stopAndJoinWSConnectionThreads();
     stopAndJoinWSThread();
     std::cout << "Programm was closed correctly, all threads closed" << std::endl;
 }
@@ -791,7 +793,6 @@ void ExitProgramm()
 void StopMeasurementClean(ControlWriter &controlWriter)
 {
     websocketConnectionActive = false;
-    stopAndJoinWSConnectionThreads();
     resetDevices();
     controlWriter.stopWriter(); 
     startWriter = true;
@@ -841,24 +842,6 @@ void clearAllQueues()
     {
         std::lock_guard<std::mutex> lock(wsDataQueueMutex);
         clearQueue(wsCSVPackagesQueue);
-    }
-}
-/**
- * @brief stop and joins wsDataQueueThread, sendDataviaWSThread
- */
-void stopAndJoinWSConnectionThreads()
-{
-    if (sendDataviaWSThreadActive)
-    {
-        sendDataviaWSThreadActive = false;
-        if (sendDataviaWSThread.joinable())
-        {
-            sendDataviaWSThread.join();
-            if (verbose)
-            {
-                std::cout << "sendDataThread joined" << std::endl;
-            }
-        }
     }
 }
 /** @brief stops and joins websocket thread */
@@ -1164,7 +1147,8 @@ struct Command {
 };
 
 struct WSContext {
-    std::shared_ptr<Measurement> currentMeasurement; 
+    std::shared_ptr<Measurement> currentMeasurement;
+    std::jthread msmntThread;  
     std::jthread sendThread; 
 }; 
 WSContext wsCtx; 
@@ -1229,8 +1213,7 @@ void startMeasurement(Command & cmd, ControlWriter& ctrl, WSContext& wsCtx){
         cmd.conn->send_text("Sending data was started via the client.");
     }
 
-    sendDataviaWSThread = std::thread(&Measurement::start, wsCtx.currentMeasurement, std::ref(ctrl));
-    sendDataviaWSThreadActive = true;
+    wsCtx.msmntThread = std::jthread(std::bind_front(&Measurement::start, wsCtx.currentMeasurement.get()), std::ref(ctrl));
     std::cout << "Measurement was set" << std::endl;
 
 }
@@ -1412,16 +1395,22 @@ void StartWS(int &port, ControlWriter &controlWriter)
                             cmd.conn->send_text(R"({"type":"error","msg":"not running"})");
                             break;
                         }
-                        StopMeasurementClean(controlWriter); 
+                        websocketConnectionActive = false;
+                        resetDevices();
                         if (wsCtx.sendThread.joinable()) {        
                             wsCtx.sendThread.request_stop();      
                             wsCtx.sendThread.join();             
                         }
-                        wsCtx.currentMeasurement = nullptr;  
+                        if (wsCtx.msmntThread.joinable()) {        
+                            wsCtx.msmntThread.request_stop();              
+                            wsCtx.msmntThread.join();             
+                        }
+                        controlWriter.stopWriter(); 
+                        startWriter = true;
+                        wsCtx.currentMeasurement = nullptr; 
                     }
                 }
             }
-        std::cout << "CMDWorker wurde beendet" << std::endl; 
         }
     );
 
