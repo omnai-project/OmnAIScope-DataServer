@@ -71,7 +71,6 @@ void resetDevices();
 void clearAllQueues();
 void stopAndJoinWSThread();
 void ExitProgramm();
-void StopMeasurementClean(ControlWriter &);
 std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t> &rgb);
 nlohmann::json getDevicesAsJson(bool);
 Measurement parseWSDataToMeasurement(const std::string &data);
@@ -788,17 +787,6 @@ void ExitProgramm()
 }
 
 /**
- * @brief stops WS threads, reset Devices, set startWriter to true
- */
-void StopMeasurementClean(ControlWriter &controlWriter)
-{
-    websocketConnectionActive = false;
-    resetDevices();
-    controlWriter.stopWriter(); 
-    startWriter = true;
-}
-
-/**
  * @brief Stops all devices, reset sampler, clear devices and device Manager, Runs ws and sample queues
  */
 void resetDevices()
@@ -1198,7 +1186,7 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
 * @brief Starts new measurement with given presets 
 * Sends data via WS connection 
 */
-void startMeasurement(Command & cmd, ControlWriter& ctrl, WSContext& wsCtx){
+void startMeasurement(Command& cmd, ControlWriter& ctrl, WSContext& wsCtx){
     wsCtx.currentMeasurement = std::make_shared<Measurement>(); 
     wsCtx.currentMeasurement->dataDestination = DataDestination::WS; 
     wsCtx.currentMeasurement->format = cmd.startMetaData.format; 
@@ -1216,6 +1204,25 @@ void startMeasurement(Command & cmd, ControlWriter& ctrl, WSContext& wsCtx){
     wsCtx.msmntThread = std::jthread(std::bind_front(&Measurement::start, wsCtx.currentMeasurement.get()), std::ref(ctrl));
     std::cout << "Measurement was set" << std::endl;
 
+}
+
+/**
+* @brief Stops wsCtx threads, Writer; resetDevices and measurement
+*/
+void stopMeasurement(ControlWriter& ctrl, WSContext& wsCtx){
+    websocketConnectionActive = false;
+    resetDevices();
+    if (wsCtx.sendThread.joinable()) {        
+        wsCtx.sendThread.request_stop();      
+        wsCtx.sendThread.join();             
+    }
+    if (wsCtx.msmntThread.joinable()) {        
+        wsCtx.msmntThread.request_stop();              
+        wsCtx.msmntThread.join();             
+    }
+    ctrl.stopWriter(); 
+    startWriter = true;
+    wsCtx.currentMeasurement = nullptr; 
 }
 
 /**
@@ -1273,7 +1280,6 @@ void processDeque(std::stop_token stopToken, crow::websocket::connection &conn, 
         std::cout << "Processdeque stopped" << std::endl;
     }
 }
-
 
 /**
  * @brief Start Crow WS on given port
@@ -1359,7 +1365,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
             cmdWorker.request_stop();
         }
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
-        StopMeasurementClean(controlWriter);
+        stopMeasurement(controlWriter, wsCtx);
         std::lock_guard<std::mutex> _(mtx);
         users.erase(&conn);
     })
@@ -1395,19 +1401,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
                             cmd.conn->send_text(R"({"type":"error","msg":"not running"})");
                             break;
                         }
-                        websocketConnectionActive = false;
-                        resetDevices();
-                        if (wsCtx.sendThread.joinable()) {        
-                            wsCtx.sendThread.request_stop();      
-                            wsCtx.sendThread.join();             
-                        }
-                        if (wsCtx.msmntThread.joinable()) {        
-                            wsCtx.msmntThread.request_stop();              
-                            wsCtx.msmntThread.join();             
-                        }
-                        controlWriter.stopWriter(); 
-                        startWriter = true;
-                        wsCtx.currentMeasurement = nullptr; 
+                        else stopMeasurement(controlWriter, wsCtx); 
                     }
                 }
             }
