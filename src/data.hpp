@@ -1296,7 +1296,10 @@ void StartWS(int &port, ControlWriter &controlWriter)
     .onclose([&](crow::websocket::connection &conn, const std::string &reason)
     {
         websocketConnectionActive = false;
-        if (cmdWorker.joinable()) cmdWorker.request_stop();
+        if (cmdWorker.joinable()) {
+            cmdQueue.push(Command{CmdType::UNKNOWN,{},{nullptr}});
+            cmdWorker.request_stop();
+        }
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
         StopMeasurementClean(controlWriter);
         std::lock_guard<std::mutex> _(mtx);
@@ -1305,8 +1308,24 @@ void StartWS(int &port, ControlWriter &controlWriter)
     .onmessage([&](crow::websocket::connection &conn, const std::string &data, bool is_binary)
     {
         CROW_LOG_INFO << "Received message: " << data;
+<<<<<<< HEAD
         websocketConnectionActive = true; 
         // TODO: Implement saving functionality as cmd 
+=======
+        // Idee : --save option beim starten der Messung damit die gespeichert wird ? Wie würde ich denn dann einen stop befehl senden ? 
+        // extra queue die alle daten hat, beim speichern wird die einmal durch den writer gejagt dann das output file genommen und über ws übergeben
+        // stop befehl könnte über cmd handler geregelt werden 
+
+        // ParseWsDataToMeasurement wird zu einem CMD Handler --> Was wird eigentlich gerade gesendet? Was ist zu tun ? Hat zugriff auf config in der die aktuellen states liegen
+        // bpsw. ist messung schon am laufen, wurde gestoppt , speichern beendet ?
+        
+        // Später Messung durch command handler während laufzeit steuerbar --> Das nen riesen aufwand, speichern sollte einfacher sein 
+
+        // Schritt 1 : auslagern der aktuellen funktionalität in cmd handler 
+        // Schritt 2 : Implementierung der stop funktionalität 
+        // Schritt 3: Implementierung der Speicherfunktionalität --> Das nochmal in kleinere Schritte unterteilen
+
+>>>>>>> cbb048f (WIP: Fix stopping CMD Worker)
         cmdQueue.push(parseCommand(data, &conn)); 
     }); 
 
@@ -1322,6 +1341,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
 
                 switch (cmd.type){
                     case CmdType::START: {
+                        websocketConnectionActive = true; 
                         if(currentMeasurement){
                             cmd.conn->send_text(R"({"type":"error","msg":"already running"})");
                             break;
@@ -1357,6 +1377,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
                     }
                 }
             }
+        std::cout << "CMDWorker wurde beendet" << std::endl; 
         }
     );
 
