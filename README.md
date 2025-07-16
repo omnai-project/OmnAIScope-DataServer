@@ -48,13 +48,24 @@ Request the available UUIDs by accessing the REST API endpoint:
    wscat -c ws://<ip>:<port>/ws
    ```
 1. Start the measurement
-To start the measurement the client has to send the UUIDs to the websocket via 
+To start the measurement the client has to send the start command to the websocket:
    ```
-   <UUID1> <UUID2> ... <optional:Sample Rate> <optional:format>
+   {"type":"start", "uuids":["<UUID>", "<UUID>",...], "rate":<int>,"format":"<format>"}
    ```
-At the end of the command the client can send a sample rate which sets the sample rate for all chosen devices. The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default format is json. 
+
+The client can set the : 
+- UUID: datastreams measured via the device UUIDs
+- RATE: sampling rate of measurement 
+- FORMAT: format of the measurement 
+> The default sample rate is 60 Sa/s, the maximal sample rate is 100000 Sa/s. At the end of the command you can also set a format, available formats are "json, csv, binary". The default > format is json. 
 
 You should receive data in the chosen format from the chosen devices now. 
+
+2.Stop the measurement 
+To stop the measurement send the stop command to the websocket : 
+```
+{"type":"stop"}
+```
 
 ## How to build the project
 **Important: If you don't have access to the private communication submodule it is currently not possible to build this project locally. A CI Build is integrated for Linux that can be used in a fork** 

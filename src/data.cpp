@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
                 format = FormatType::JSON;
             }
             auto measurement = std::make_shared<Measurement>(startUUID, filePath, 10000, format, destination);
-            measurement->start(controlWriter);
+            measurement->startLocal(controlWriter);
         }
     }
 
