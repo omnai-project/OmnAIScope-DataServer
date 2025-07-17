@@ -41,6 +41,7 @@ inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureDa
 std::atomic<bool> running{true};
 bool verbose{false};
 std::queue<sample_T> sampleQueue;
+std::queue<sample_T> saveDataQueue; 
 std::mutex sampleQueueMutex;
 std::mutex wsDataQueueMutex;
 nlohmann::json HeaderJSON;
@@ -54,8 +55,15 @@ std::atomic<bool> websocketConnectionActive{false};
 crow::App<crow::CORSHandler> crowApp;
 std::thread websocket;
 static std::atomic<int> dataPointsInSampleQue(0);
+static std::atomic<int> dataPointsInSaveQue(0); 
 static int Datenanzahl(0);
 static bool startWriter = true;
+struct WSContext {
+    std::shared_ptr<Measurement> currentMeasurement;
+    std::jthread msmntThread;  
+    std::jthread sendThread; 
+}; 
+WSContext wsCtx;
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -74,7 +82,7 @@ void ExitProgramm();
 std::string colorToString(const std::tuple<uint8_t, uint8_t, uint8_t> &rgb);
 nlohmann::json getDevicesAsJson(bool);
 Measurement parseWSDataToMeasurement(const std::string &data);
-void processDeque(std::stop_token, crow::websocket::connection &, std::shared_ptr<Measurement>);
+void processDeque(std::stop_token, crow::websocket::connection& , std::shared_ptr<Measurement>);
 template <typename T, typename Container = std::deque<T>>
 void clearQueue(std::queue<T, Container> &q)
 {
@@ -105,7 +113,7 @@ private:
      * CaptureData contains a different amount of data points each time, samples at the edge are sometimes ignored at specific sampling rates
      * Values are rounded to 5th decimal place
      */
-    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue)
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::queue<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue)
     {
         // TODO: sampling should be improved
         int currentPosition = 0;
@@ -130,6 +138,31 @@ private:
         // Access to first device
         const auto &[firstId, firstDeviceData] = *captureData.begin();
         size_t vectorSize = firstDeviceData.size();
+
+        // Save all data in the saveQueue
+        for(int i = 0; i < vectorSize-1; ++i){
+            if(!running) return; 
+
+            timeStamp = round_to(firstDeviceData[i].first, 5);
+            firstX = round_to(firstDeviceData[i].second, 5);
+
+            // values from other devices
+            otherX = std::vector<val_T>();
+            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it)
+            {
+                const auto &deviceData = it->second;
+                if (i < deviceData.size())
+                {
+                    otherX->push_back(round_to(deviceData[i].second, 5));
+                }
+            }
+
+            sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
+
+            // thread save access to handle and counter
+            saveHandle.push(sample);
+            dataPointsInSaveQue++; 
+        }
 
         for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition)
         {
@@ -170,10 +203,10 @@ private:
     }
 
 public:
-    QueueFormatter(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue, int &samplingRate)
+    QueueFormatter(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::queue<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue, int &samplingRate)
         : handle(handle), samplingRate(samplingRate)
     {
-        transformData(captureData, handle, dataPointsInSampleQue);
+        transformData(captureData, handle, saveHandle, dataPointsInSampleQue);
     }
     ~QueueFormatter()
     {
@@ -273,9 +306,9 @@ private:
     }
 
     void write_csv(std::atomic<int> &dataPointsInSampleQue)
-    {
-        while (running)
-        {
+    {  
+        while (running && !saveDataQueue.empty())
+        {   
             if (dataPointsInSampleQue > 0)
             {
                 sample_T sample;
@@ -306,8 +339,8 @@ private:
     {
 
         outFile << "\"data\": " << "[";
-        while (running)
-        {
+        while (running && !saveDataQueue.empty())
+        {  
             if (dataPointsInSampleQue > 0)
             {
                 int i = 0;
@@ -580,8 +613,7 @@ public:
     Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue, std::queue<nlohmann::json> &jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
         : handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle)
     {
-        std::cout << std::fixed << std::setprecision(3);
-
+        std::cout << std::fixed << std::setprecision(3); 
         // Seperation by data destination
         if (measurement->dataDestination == DataDestination::WS)
         {
@@ -613,7 +645,7 @@ public:
                     outFile << "\n";
                 }
                 else if (measurement->format == FormatType::JSON)
-                {
+                { 
                     outFile << "{\"metadata\": {";
                     outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
@@ -677,6 +709,7 @@ class ControlWriter {
     public: 
         void printOrWriteData(std::shared_ptr<Measurement> measurement, std::optional<std::stop_token> stopToken = std::nullopt);
         void stopWriter();   
+        void saveData(WSContext& wsCtx);
 
     private: 
         Writer* writer_{nullptr}; 
@@ -711,8 +744,6 @@ class ControlWriter {
     /**
     * @brief Starts the QueueFormatter, waits till formatter stops, starts writer with given measurement presets
     */
-    /* This is buggy: writer is only destructed on programm exit --> problems with ws, writer cannot start befor batch is transformed --> Makes it all a lot slower
-    */
     void ControlWriter::printOrWriteData(std::shared_ptr<Measurement> measurement, std::optional<std::stop_token> stopToken)
     {
         if (sampler.has_value())
@@ -738,7 +769,7 @@ class ControlWriter {
             if (stopToken && stopToken->stop_requested())
             return;     
 
-            QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, dataPointsInSampleQue, measurement->samplingRate);
+            QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, saveDataQueue, dataPointsInSampleQue, measurement->samplingRate);
             delete queueFormatter;
 
             if (startWriter)
@@ -746,6 +777,14 @@ class ControlWriter {
                 writer_= new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
                 startWriter = false;
             }
+        }
+    }
+
+    void ControlWriter::saveData(WSContext& wsCtx){
+        if (startWriter)
+        {
+            writer_= new Writer(wsCtx.currentMeasurement, saveDataQueue, dataPointsInSaveQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
+            startWriter = false;
         }
     }
     void ControlWriter::stopWriter() {
@@ -1114,7 +1153,7 @@ public:
 };
 
 enum class CmdType {
-    START, STOP, UNKNOWN
+    START, STOP, SAVE, UNKNOWN
 };
 
 /**
@@ -1124,6 +1163,7 @@ struct StartMeta {
     std::vector<std::string> uuids; 
     int samplingRate = 60; 
     FormatType format = FormatType::JSON; 
+    std::string filepath = " "; 
 };
 /**
 * @brief Commandobject containing commandType, metadataobject, websocket connection ptr
@@ -1131,15 +1171,10 @@ struct StartMeta {
 struct Command {
     CmdType type; 
     StartMeta startMetaData; 
+    StartMeta saveMetaData; 
     crow::websocket::connection* conn = nullptr; 
 };
 
-struct WSContext {
-    std::shared_ptr<Measurement> currentMeasurement;
-    std::jthread msmntThread;  
-    std::jthread sendThread; 
-}; 
-WSContext wsCtx; 
 TSQueue<Command> cmdQueue; 
 Command parseCommand(const std::string&, crow::websocket::connection&); 
 
@@ -1149,7 +1184,7 @@ Command parseCommand(const std::string&, crow::websocket::connection&);
 * @param conn websocket connection handle for Commandobject 
 */
 Command parseCommand(const std::string& rawData, crow::websocket::connection* conn){
-    Command cmd{CmdType::UNKNOWN, {}, conn}; 
+    Command cmd{CmdType::UNKNOWN, {}, {}, conn}; 
 
     try{
         auto rawDataJson = nlohmann::json::parse(rawData); 
@@ -1173,6 +1208,25 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
         }
         else if (type == "stop") {
             cmd.type = CmdType::STOP;
+        }
+        else if(type =="save"){
+            cmd.type = CmdType::SAVE;  
+            if(rawDataJson.contains("uuids")){
+                cmd.saveMetaData.uuids = rawDataJson["uuids"].get<std::vector<std::string>>(); 
+            }
+            if(rawDataJson.contains("rate")){
+                cmd.saveMetaData.samplingRate = std::max(10, std::min(100000, rawDataJson["rate"].get<int>()));
+            }
+            if(rawDataJson.contains("format")){
+                std::string fmt = rawDataJson["format"].get<std::string>();
+                if(fmt=="csv") cmd.saveMetaData.format = FormatType::CSV; 
+                else if (fmt=="binary") cmd.saveMetaData.format = FormatType::BINARY; 
+                else cmd.saveMetaData.format = FormatType::JSON;  
+            }    
+            if(rawDataJson.contains("path")){
+                std::string path = rawDataJson["path"].get<std::string>(); 
+                cmd.saveMetaData.filepath = path; 
+            }   
         }
     }
     catch (...) {
@@ -1223,6 +1277,21 @@ void stopMeasurement(ControlWriter& ctrl, WSContext& wsCtx){
     resetDevices(); // do not switch order 
     startWriter = true;
     wsCtx.currentMeasurement = nullptr; 
+}
+
+void saveMeasurement(Command &cmd, ControlWriter& ctrl, WSContext& wsCtx){
+    wsCtx.currentMeasurement = std::make_shared<Measurement>(); 
+    wsCtx.currentMeasurement->dataDestination = DataDestination::LOCALFILE; 
+    wsCtx.currentMeasurement->format = cmd.saveMetaData.format; 
+    wsCtx.currentMeasurement->samplingRate = cmd.saveMetaData.samplingRate; 
+    wsCtx.currentMeasurement->uuids = cmd.saveMetaData.uuids; 
+    wsCtx.currentMeasurement->filePath = cmd.saveMetaData.filepath; 
+
+    ctrl.saveData(wsCtx); 
+
+    while(!saveDataQueue.empty()){
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }
 
 /**
@@ -1343,6 +1412,24 @@ void StartWS(int &port, ControlWriter &controlWriter)
         return crow::response(204);
     });
 
+    CROW_ROUTE(crowApp, "/download/<string>")
+    ([](const std::string& fname) {                    
+        std::ifstream f(fname, std::ios::binary);
+        if (fname.find_first_of("\\/") != std::string::npos) return crow::response(400);
+        if (!f) return crow::response(404);
+
+        std::string body{ std::istreambuf_iterator<char>(f),
+                        std::istreambuf_iterator<char>() };
+
+        crow::response res;
+        res.code = 200;
+        res.set_header("Content-Type", "text/plain");
+        res.set_header("Content-Disposition",
+                    "attachment; filename=\"" + fname + "\"");
+        res.body = std::move(body);
+        return res;                                   
+    });
+
     /**
      * @brief websocket endpoint to receive measurement data from devices
      * While this is open the API endpoints cannot be used
@@ -1361,7 +1448,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
     {
         websocketConnectionActive = false;
         if (cmdWorker.joinable()) {
-            cmdQueue.push(Command{CmdType::UNKNOWN,{},{nullptr}});
+            cmdQueue.push(Command{CmdType::UNKNOWN,{},{},{nullptr}});
             cmdWorker.request_stop();
         }
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
@@ -1403,6 +1490,15 @@ void StartWS(int &port, ControlWriter &controlWriter)
                         }
                         else stopMeasurement(controlWriter, wsCtx);
                         break;  
+                    }
+                    case CmdType::SAVE:{
+                        if(wsCtx.currentMeasurement){
+                            cmd.conn->send_text(R"({"type":"error","msg":"Stop measurement before saving"})");
+                            break;
+                        }
+                        else saveMeasurement(cmd, controlWriter, wsCtx); 
+                        cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
+                        break; 
                     }
                 }
             }
