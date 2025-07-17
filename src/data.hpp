@@ -1211,7 +1211,6 @@ void startMeasurement(Command& cmd, ControlWriter& ctrl, WSContext& wsCtx){
 */
 void stopMeasurement(ControlWriter& ctrl, WSContext& wsCtx){
     websocketConnectionActive = false;
-    resetDevices();
     if (wsCtx.sendThread.joinable()) {        
         wsCtx.sendThread.request_stop();      
         wsCtx.sendThread.join();             
@@ -1221,6 +1220,7 @@ void stopMeasurement(ControlWriter& ctrl, WSContext& wsCtx){
         wsCtx.msmntThread.join();             
     }
     ctrl.stopWriter(); 
+    resetDevices(); // do not switch order 
     startWriter = true;
     wsCtx.currentMeasurement = nullptr; 
 }
@@ -1401,7 +1401,8 @@ void StartWS(int &port, ControlWriter &controlWriter)
                             cmd.conn->send_text(R"({"type":"error","msg":"not running"})");
                             break;
                         }
-                        else stopMeasurement(controlWriter, wsCtx); 
+                        else stopMeasurement(controlWriter, wsCtx);
+                        break;  
                     }
                 }
             }
