@@ -67,6 +67,17 @@ To stop the measurement send the stop command to the websocket :
 {"type":"stop"}
 ```
 
+3.Save the measurement 
+AFTER stopping the measurement send the save command to the websocket, it is important to send the same uuids as used for the measurement: 
+```
+ {"type":"save", "uuids":["<UUID>", "<UUID>",...], "path":"<filepath>","format":"<format>"}
+`` 
+
+path: filename in which the file is saved 
+format: format in which the file is saved 
+
+Download the file from the API endpoint : /download/<filename>
+
 ## How to build the project
 **Important: If you don't have access to the private communication submodule it is currently not possible to build this project locally. A CI Build is integrated for Linux that can be used in a fork** 
 
