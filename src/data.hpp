@@ -1351,6 +1351,46 @@ void processDeque(std::stop_token stopToken, crow::websocket::connection &conn, 
 }
 
 /**
+* @brief CommandWorker process commands from the commandQueue 
+* @param ControlWriter controls the Writer started for the measurement
+* @param stop_token stops when stop_requested 
+*/
+void workOnCommands(std::stop_token stop_token, ControlWriter &controlWriter ){
+     while(!stop_token.stop_requested()){
+        Command cmd = cmdQueue.pop(); 
+
+        switch (cmd.type){
+            case CmdType::START: {
+                websocketConnectionActive = true; 
+                if(wsCtx.currentMeasurement){
+                    cmd.conn->send_text(R"({"type":"error","msg":"already running"})");
+                    break;
+                }
+                else startMeasurement(cmd, controlWriter, wsCtx);
+                break;
+            }
+            case CmdType::STOP:{
+                if (!wsCtx.currentMeasurement) {
+                    cmd.conn->send_text(R"({"type":"error","msg":"not running"})");
+                    break;
+                }
+                else stopMeasurement(controlWriter, wsCtx);
+                break;  
+            }
+            case CmdType::SAVE:{
+                if(wsCtx.currentMeasurement){
+                    cmd.conn->send_text(R"({"type":"error","msg":"Stop measurement before saving"})");
+                    break;
+                }
+                else saveMeasurement(cmd, controlWriter, wsCtx); 
+                cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
+                break; 
+            }
+        }
+     }
+}
+
+/**
  * @brief Start Crow WS on given port
  * Provides API endpoints for information and WS communication to start a measurement
  * @param port to start WS on
@@ -1443,6 +1483,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
         std::lock_guard<std::mutex> _(mtx);
         users.insert(&conn);
         conn.send_text("Hello, connection to websocket established. To start a measurement send the wished UUID, optional send a sampling rate between 10 and 100000");
+        cmdWorker = std::jthread(workOnCommands, std::ref(controlWriter));
     })
     .onclose([&](crow::websocket::connection &conn, const std::string &reason)
     {
@@ -1463,47 +1504,6 @@ void StartWS(int &port, ControlWriter &controlWriter)
         // TODO: Implement saving functionality as cmd 
         cmdQueue.push(parseCommand(data, &conn)); 
     }); 
-
-    /**
-    * @brief CommandWorker process commands from the commandQueue 
-    * @param stop_token stops when stop_requested 
-    */
-    cmdWorker = std::jthread([&](std::stop_token stop_token){
-
-            while(!stop_token.stop_requested()){
-                Command cmd = cmdQueue.pop(); 
-
-                switch (cmd.type){
-                    case CmdType::START: {
-                        websocketConnectionActive = true; 
-                        if(wsCtx.currentMeasurement){
-                            cmd.conn->send_text(R"({"type":"error","msg":"already running"})");
-                            break;
-                        }
-                        else startMeasurement(cmd, controlWriter, wsCtx);
-                        break;
-                    }
-                    case CmdType::STOP:{
-                        if (!wsCtx.currentMeasurement) {
-                            cmd.conn->send_text(R"({"type":"error","msg":"not running"})");
-                            break;
-                        }
-                        else stopMeasurement(controlWriter, wsCtx);
-                        break;  
-                    }
-                    case CmdType::SAVE:{
-                        if(wsCtx.currentMeasurement){
-                            cmd.conn->send_text(R"({"type":"error","msg":"Stop measurement before saving"})");
-                            break;
-                        }
-                        else saveMeasurement(cmd, controlWriter, wsCtx); 
-                        cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
-                        break; 
-                    }
-                }
-            }
-        }
-    );
 
     crowApp.signal_clear();
     std::signal(SIGINT, customSignalHandler);
