@@ -1310,7 +1310,7 @@ void processDeque(std::stop_token stopToken, crow::websocket::connection &conn, 
                 nlohmann::ordered_json message;
                 message.update(wsPackagesQueue.front());
                 wsPackagesQueue.pop();
-                message["type"].push_back("data"); 
+                message["type"] = "data"; 
                 if (!measurement->uuids.empty())
                 {
                     message["devices"] = nlohmann::json::array();

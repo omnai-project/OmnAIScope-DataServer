@@ -71,7 +71,7 @@ To stop the measurement send the stop command to the websocket :
 AFTER stopping the measurement send the save command to the websocket, it is important to send the same uuids as used for the measurement: 
 ```
  {"type":"save", "uuids":["<UUID>", "<UUID>",...], "path":"<filepath>","format":"<format>"}
-`` 
+```
 
 path: filename in which the file is saved 
 format: format in which the file is saved 
