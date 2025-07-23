@@ -633,7 +633,7 @@ public:
                 } // Write header
                 else if (measurement->format == FormatType::CSV)
                 {
-                    outFile << "Timestamp [s]" << " , ";
+                    outFile << "version: 1.0.0 , " << "Timestamp [s]" << " , ";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
                     {
                         outFile << measurement->uuids[i];
@@ -646,7 +646,7 @@ public:
                 }
                 else if (measurement->format == FormatType::JSON)
                 { 
-                    outFile << "{\"metadata\": {";
+                    outFile << "{\"version\": \"1.0.0\"," << "\"metadata\": {";
                     outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
                     {
