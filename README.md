@@ -206,32 +206,29 @@ The program should start, and you can interact with it as instructed.
 
 By following these steps, you should be able to successfully set up, build, and run the OmnAIScope-DataServer. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
 
-## Rasberry Pi
+## Linux, incl. Rasberry Pi
 
-## Build and Run Instructions on ARM
-
-This guide explains how to build and run the program on ARM-based platforms. Follow the steps below to set up, compile, and run the program.
-
----
+Tested on Debian 13 2025-07-03 and Raspberry Pi OS 2025-05-06
 
 ### Prerequisites
 
-Make sure the following packages are installed:
+Ensure the following packages are installed:
 
-- `build-essential`
-- `cmake`
-- `autoconf`
-- `libudev-dev`
-- `automake`
-- `autoconf-archive`
 
-#### Installing Required Packages (Debian-based Systems)
-
-Run the following command to install the necessary packages:
-
-``` cmd
+```sh
 sudo apt update
-sudo apt install build-essential cmake autoconf libudev-dev
+sudo apt install -y \
+   build-essential \
+   cmake \
+   autoconf \
+   libudev-dev \
+   curl \
+   zip \
+   unzip \
+   tar \
+   pkg-config \
+   libtool \
+   m4
 ```
 
 #### Set VCPKG Variable 
@@ -239,34 +236,27 @@ sudo apt install build-essential cmake autoconf libudev-dev
 ```
 export VCPKG_FORCE_SYSTEM_BINARIES=1
 ```
+This tells vcpkg to stop downloading/bootstrapping its own helper binaries and instead use the versions of git, cmake, curl, tar, unzip, ninja, etc. already on your PATH.
+That prevents crashes when vcpkg’s prebuilt tools don’t match your distro/architecture (old glibc, musl, ARM) or when a proxy/offline policy blocks those downloads.
+We set this for reproducibility reasons—everything then comes from the system package manager instead of opaque binaries fetched at build time.
+
 #### Clone the Project Repository and Initialize Submodules
 
-1. Clone the OmnAIScope-DataServer project from the repository:
-   ```cmd
-   git clone git@github.com:omnai-project/OmnAIScope-DevDataServer.git
-   ```
-1. Navigate into the cloned project directory:
-   ```cmd
-   cd OmnAIScope-DevDataServer
-   ```
-1. Initialize and update the submodules:
-   ```cmd
-   git submodule update --init --recursive
-   ```
-   This ensures all dependencies and additional components required by the project are retrieved.
-
-### Building 
-
-Run the following commands to build the project 
-```
-   cmake ..
-   cmake --build .
+Clone the OmnAIScope-DataServer project from the repository:
+```sh
+git clone git@github.com:omnai-project/OmnAIScope-DevDataServer.git --recurse-submodules
+cd OmnAIScope-DevDataServer
+cmake -B ./build/
+cmake --build ./build/
 ```
 
-You can start the project with 
-```
-   ./OmnAIScopeBackend
+You can start the data-server with 
+
+```sh
+   .build/OmnAIScopeBackend
 ``` 
+
+The executable can be copied standalone without further packaging. 
 
 By following these steps, you should be able to successfully set up, build, and run the OmnAIScope-DataServer project. If you encounter any issues, ensure all dependencies are correctly installed and that your environment variables are properly configured.
 ---
