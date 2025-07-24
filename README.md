@@ -1,3 +1,5 @@
+#### **The API documentation for the websocket can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc**
+
 ## Introduction
 
 The OmnAIScope-DataServer is a Minimum Viable Product (MVP) of the OmnAIScopeBackend designed as a Command-Line Interface (CLI) tool. 
@@ -23,8 +25,6 @@ The CLI-Tool includes the commands:
 --version Prints out the current SW version 
 
 #### How to use the Websocket: 
-
-#### **The API documentation can be found under :https://github.com/AI-Gruppe/OmnAIScope_DataServer_API_Doc**
 
 1. Start the Websocket 
 Start the executable via 
@@ -67,7 +67,8 @@ To stop the measurement send the stop command to the websocket :
 {"type":"stop"}
 ```
 
-3.Save the measurement 
+3.Save the measurement
+#### Documentation of saved files format can be found in docs\FileFormats 
 AFTER stopping the measurement send the save command to the websocket, it is important to send the same uuids as used for the measurement: 
 ```
  {"type":"save", "uuids":["<UUID>", "<UUID>",...], "path":"<filepath>","format":"<format>"}
