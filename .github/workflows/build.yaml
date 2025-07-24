@@ -47,11 +47,11 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Strip binary (optional)
-        run: strip build/OmnAIScopeBackend || true
+        run: strip build/OmnAIScope-DataServer|| true
 
       # --- upload build artifact------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OmnAIScopeBackend-linux-${{ github.ref_name }}
-          path: build/OmnAIScopeBackend
+          name: OmnAIScope-DataServer-linux-${{ github.ref_name }}
+          path: build/OmnAIScope-DataServer
