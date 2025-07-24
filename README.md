@@ -229,7 +229,9 @@ sudo apt install -y \
    tar \
    pkg-config \
    libtool \
-   m4
+   m4 \
+   autoconf-archive \
+   automake 
 ```
 
 #### Set VCPKG Variable 
