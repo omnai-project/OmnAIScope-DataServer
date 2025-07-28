@@ -1,0 +1,12 @@
+## CSV 
+\# source : OmnAIScope-DataServer
+\# version: 1.1.1
+Time , UUID1 , UUID2 , ...
+(s) , (V) , (V) , ... 
+0,47
+1,47
+2,47
+3,48
+... 
+
+## JSON 
