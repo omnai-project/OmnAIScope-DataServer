@@ -635,7 +635,7 @@ public:
                 {
                     outFile << "# source: OmnAIScope-DataServer"; 
                     outFile << "\n"; 
-                    outFile << "# version: 1.1.0"; 
+                    outFile << "# version: 1.1.1"; 
                     outFile << "\n"; 
                     outFile << "Time" << " , ";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
@@ -647,7 +647,7 @@ public:
                         }
                     }
                     outFile << "\n";
-                    outFile <<"(s) "; 
+                    outFile <<"(s) ,"; 
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
                     {
                         outFile << "(V)";
