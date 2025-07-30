@@ -635,7 +635,7 @@ public:
                 {
                     outFile << "# source: OmnAIScope-DataServer"; 
                     outFile << "\n"; 
-                    outFile << "# version: 1.1.1"; 
+                    outFile << "# version: 1.2.0"; 
                     outFile << "\n"; 
                     outFile << "Time" << " , ";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
@@ -662,7 +662,7 @@ public:
                 else if (measurement->format == FormatType::JSON)
                 { 
                     outFile << "{\"source\": \"OmnAIScope-DataServer\","; 
-                    outFile << "\"version\": \"1.1.0\","; 
+                    outFile << "\"version\": \"1.2.0\","; 
                     outFile << "\"metadata\": {";
                     outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
