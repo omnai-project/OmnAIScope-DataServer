@@ -30,7 +30,7 @@ enum class FormatType;
 // GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
 using val_T = double;
-using ts_T = double; // timestamp
+using ts_T = int64_t; // timestamp
 
 using sample_T = std::tuple<ts_T, val_T, std::optional<std::vector<val_T>>>;
 
@@ -143,7 +143,7 @@ private:
         for(int i = 0; i < vectorSize-1; ++i){
             if(!running) return; 
 
-            timeStamp = round_to(firstDeviceData[i].first, 5);
+            timeStamp = std::trunc(firstDeviceData[i].first);
             firstX = round_to(firstDeviceData[i].second, 5);
 
             // values from other devices
@@ -179,7 +179,7 @@ private:
             }
 
             // values from first device
-            timeStamp = round_to(firstDeviceData[currentPosition].first, 5);
+            timeStamp = std::trunc(firstDeviceData[currentPosition].first);
             firstX = round_to(firstDeviceData[currentPosition].second, 5);
 
             // values from other devices
@@ -635,7 +635,7 @@ public:
                 {
                     outFile << "# source: OmnAIScope-DataServer"; 
                     outFile << "\n"; 
-                    outFile << "# version: 1.1.1"; 
+                    outFile << "# version: 1.2.0"; 
                     outFile << "\n"; 
                     outFile << "Time" << " , ";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
@@ -662,7 +662,7 @@ public:
                 else if (measurement->format == FormatType::JSON)
                 { 
                     outFile << "{\"source\": \"OmnAIScope-DataServer\","; 
-                    outFile << "\"version\": \"1.1.0\","; 
+                    outFile << "\"version\": \"1.2.0\","; 
                     outFile << "\"metadata\": {";
                     outFile << "\"" << "devices" << "\"" << ":" << "[" << "{";
                     for (size_t i = 0; i < measurement->uuids.size(); ++i)
