@@ -22,6 +22,7 @@
 #include <optional>
 #include <deque>
 #include <cstddef>
+#include <malloc.h>
 
 
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -38,7 +39,7 @@ class SaveDeque {
 	public:
     		using SizeFunc = std::function<size_t(const T&)>;
 		
-		/* 10MiB  */
+		/* 10MiB Default  */
     		explicit SaveDeque(
         		size_t maxBytes = 10ULL * 1024 * 1024,
         		SizeFunc sizeFunc = [](const T& item){ return sizeof(T); }
@@ -103,8 +104,11 @@ class SaveDeque {
     		/** Clear all contents **/
     		void clear() {
         		std::lock_guard<std::mutex> lock(mutex_);
+			std::deque<T>().swap(buffer_);
         		buffer_.clear();
         		currentBytes_ = 0;
+			maxBytes_ = 10ULL * 1024 * 1024;
+			malloc_trim(0);
     		}
 
     		/** Check if buffer empty **/
@@ -119,10 +123,21 @@ class SaveDeque {
         		return currentBytes_ >= maxBytes_;
     		}
 
+		bool resizeMaxBytes(size_t newMaxBytes) {
+        		std::lock_guard<std::mutex> lk(mutex_);
+        		if (newMaxBytes < maxBytes_) return false; 
+        		maxBytes_ = newMaxBytes;
+        		while (currentBytes_ > maxBytes_ && !buffer_.empty()) {
+            			currentBytes_ -= sizeFunc_(buffer_.front());
+            			buffer_.pop_front();
+        		}
+        		return true;
+    		}
+
 	private:
     		mutable std::mutex      mutex_;
     		std::deque<T>           buffer_;
-    		const size_t            maxBytes_;
+    		size_t            maxBytes_;
     		size_t                  currentBytes_;
     		SizeFunc                sizeFunc_;
 };
@@ -409,9 +424,10 @@ private:
 
     void write_csv(std::atomic<int> &dataPointsInSampleQue)
     {  
+	outFile << std::fixed << std::setprecision(5);
+	std::cout << "Start Write in CSV" << std::endl;
         while (running && !saveHandle.empty())
         {   
-	    std::cout << "Start Write in CSV" << std::endl;
             if (!saveHandle.empty())
             {
                 sample_T sample;
@@ -432,14 +448,15 @@ private:
                         }
                     }
                 }
-		std::cout << "Write in CSV complete" << std::endl;
                 outFile << "\n";
             }
         }
+	std::cout << "Write in CSV complete" << std::endl;
     }
 
     void write_json(std::atomic<int> &dataPointsInSampleQue)
     {
+	outFile << std::fixed << std::setprecision(1);
 	std::cout << "Start Write in JSON" << std::endl; 
         outFile << "\"data\": " << "[";
         while (running && !saveHandle.empty())
@@ -1272,7 +1289,7 @@ public:
 };
 
 enum class CmdType {
-    START, STOP, SAVE, UNKNOWN
+    START, STOP, SAVE, BUFFER, UNKNOWN
 };
 
 /**
@@ -1288,9 +1305,11 @@ struct StartMeta {
 * @brief Commandobject containing commandType, metadataobject, websocket connection ptr
 */
 struct Command {
-    CmdType type; 
+    CmdType type = CmdType::UNKNOWN;
     StartMeta startMetaData; 
-    StartMeta saveMetaData; 
+    StartMeta saveMetaData;
+    int bufferSizeMB = 0;
+    bool clearBuffer = false; 
     crow::websocket::connection* conn = nullptr; 
 };
 
@@ -1303,7 +1322,8 @@ Command parseCommand(const std::string&, crow::websocket::connection&);
 * @param conn websocket connection handle for Commandobject 
 */
 Command parseCommand(const std::string& rawData, crow::websocket::connection* conn){
-    Command cmd{CmdType::UNKNOWN, {}, {}, conn}; 
+    Command cmd;
+    cmd.conn = conn; 
 
     try{
         auto rawDataJson = nlohmann::json::parse(rawData); 
@@ -1347,6 +1367,16 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
                 cmd.saveMetaData.filepath = path; 
             }   
         }
+	else if(type == "buffer") {
+		cmd.type = CmdType::BUFFER;
+                if (rawDataJson.contains("clear") && rawDataJson["clear"].get<std::string>() == "all") {
+        		cmd.clearBuffer = true;
+    		}
+    		else if (rawDataJson.contains("size")) {
+        		int mb = rawDataJson["size"].get<int>();
+        		cmd.bufferSizeMB = mb;
+    		}		
+	}
     }
     catch (...) {
         cmd.type = CmdType::UNKNOWN;
@@ -1507,6 +1537,39 @@ void workOnCommands(std::stop_token stop_token, ControlWriter &controlWriter ){
                 cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
                 break; 
             }
+	    case CmdType::BUFFER: {
+    	    	if (wsCtx.currentMeasurement) {
+            		cmd.conn->send_text(R"({"type":"error","msg":"Cannot change buffer during measurement"})");
+        		break;
+    	    	}
+    		// Clear Data
+    		if (cmd.clearBuffer) {
+        		saveDataQueue.clear();
+        		saveDataQueue.resizeMaxBytes(10ULL * 1024 * 1024);  // Default 10 MiB
+        		cmd.conn->send_text(R"({"type":"buffer","status":"cleared","sizeMB":10})");
+        		break;
+    		}
+    		// Set new Size
+    		{
+        		int mb = cmd.bufferSizeMB;
+        		if (mb < 11 || mb > 1000) {
+            			cmd.conn->send_text(R"({"type":"error","msg":"Buffer size must be 11–1000 MB"})");
+        		}
+        		else {
+            			size_t newBytes = static_cast<size_t>(mb) * 1024 * 1024;
+            			if (!saveDataQueue.resizeMaxBytes(newBytes)) {
+                			cmd.conn->send_text(R"({"type":"error","msg":"Cannot shrink buffer below current size"})");
+            			}
+            			else {
+                			cmd.conn->send_text(
+                  				nlohmann::json{{"type","buffer"},{"status","resized"},{"sizeMB",mb}}.dump()
+                			);
+            			}
+        		}
+    		}
+    		break;
+	   }
+
         }
      }
 }
@@ -1610,7 +1673,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
     {
         websocketConnectionActive = false;
         if (cmdWorker.joinable()) {
-            cmdQueue.push(Command{CmdType::UNKNOWN,{},{},{nullptr}});
+            cmdQueue.push(Command{CmdType::UNKNOWN,{},{},0,false,{nullptr}});
             cmdWorker.request_stop();
         }
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
