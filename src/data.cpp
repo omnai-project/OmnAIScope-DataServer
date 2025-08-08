@@ -1,5 +1,8 @@
 #include "data.hpp"
 
+// Buffer size is currently set according to feeling and can still be adjusted
+inline constexpr std::size_t BufferMinMiB = 10;
+inline constexpr std::size_t BufferMaxMiB = 1000;
 
 int main(int argc, char **argv) {
 
@@ -55,7 +58,7 @@ int main(int argc, char **argv) {
     }
 
     if (bufferSizeMB != -1) {
-    	if (bufferSizeMB < 10 || bufferSizeMB > 1000) {
+    	if (bufferSizeMB < BufferMinMiB || bufferSizeMB > BufferMaxMiB) {
         	std::cerr << "Error: Buffer size must be between 10 and 1000 MiB\n";
            	return 1;
         }

@@ -33,18 +33,19 @@ enum class DataDestination;
 enum class FormatType;
 
 // BUFFER////////////////////////////////////////////////////////////////////////////////////////////////
+// Used to store samples. Data is retained up to a specified size. Old data is then discarded to make room for new data. The data is written to a file as required.
 template <typename T>
 class SaveDeque {
 	public:
     		using SizeFunc = std::function<size_t(const T&)>;
 		
-		/* 10MiB Default  */
+		// 10MiB Default
     		explicit SaveDeque(
         		size_t maxBytes = 10ULL * 1024 * 1024,
         		SizeFunc sizeFunc = [](const T& item){ return sizeof(T); }
     		) : maxBytes_(maxBytes), currentBytes_(0), sizeFunc_(std::move(sizeFunc)) {}
 		
-		/* Push a new element - remove oldest element until enough space */
+		// Push a new element - remove oldest element until enough space
     		void push(const T& item) {
         		size_t newBytes = sizeFunc_(item);
         		std::lock_guard<std::mutex> lock(mutex_);
@@ -58,7 +59,7 @@ class SaveDeque {
         		currentBytes_ += newBytes;
     		}
 		
-	    	/** Remove oldest element **/
+	    	// Remove oldest element
     		void pop() {
         		std::lock_guard<std::mutex> lock(mutex_);
         		if (!buffer_.empty()) {
@@ -67,40 +68,40 @@ class SaveDeque {
         		}
     		}
 
-    		/** Peek oldest element (0 = oldest) **/
+    		// Peek oldest element (0 = oldest)
     		T oldest() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return buffer_.front();
     		}
 
-    		/** Peek newest element (size()-1 = newest) **/
+    		// Peek newest element (size()-1 = newest)
     		T newest() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return buffer_.back();
     		}
 
-    		/** Access element by index. 0 = oldest **/
+    		// Access element by index. 0 = oldest 
     		T at(size_t idx) const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return buffer_.at(idx);
     		}
 
-    		/** Current number of elements **/
+    		// Current number of elements 
     		size_t size() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return buffer_.size();
     		}
 
-    		/** Maximum byte capacity **/
+    		// Maximum byte capacity
     		size_t maxBytes() const { return maxBytes_; }
 
-    		/** Current bytes used **/
+    		// Current bytes used 
     		size_t bytesUsed() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return currentBytes_;
     		}
 
-    		/** Clear all contents **/
+    		// Clear all contents 
     		void clear() {
         		std::lock_guard<std::mutex> lock(mutex_);
 			std::deque<T>().swap(buffer_);
@@ -110,13 +111,13 @@ class SaveDeque {
 			malloc_trim(0);
     		}
 
-    		/** Check if buffer empty **/
+    		// Check if buffer empty 
     		bool empty() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return buffer_.empty();
     		}
 
-    		/** Check if buffer full (bytesUsed >= maxBytes) **/
+    		// Check if buffer full (bytesUsed >= maxBytes) 
     		bool full() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return currentBytes_ >= maxBytes_;
