@@ -39,6 +39,9 @@ int main(int argc, char **argv) {
     bool printVersion = false;
     app.add_flag("--version", printVersion, "Prints the current version. Version is set via a git tag.");
 
+    int bufferSizeMB = -1;
+    app.add_option("-b, --buffer-size", bufferSizeMB, "Set save-buffer size in MiB (10–1000)");
+
     if (argc <= 1) {// if no parameters are given
         std::cout << app.help() << std::endl;
         return 0;
@@ -50,6 +53,20 @@ int main(int argc, char **argv) {
         std::cerr << app.help() << std::endl;
         return app.exit(e);
     }
+
+    if (bufferSizeMB != -1) {
+    	if (bufferSizeMB < 10 || bufferSizeMB > 1000) {
+        	std::cerr << "Error: Buffer size must be between 10 and 1000 MiB\n";
+           	return 1;
+        }
+        size_t newBytes = static_cast<size_t>(bufferSizeMB) * 1024 * 1024;
+        bool ok = saveDataQueue.resizeMaxBytes(newBytes);
+        std::cout << "Save-buffer resize returned: "
+                 << (ok ? "OK" : "FAILED")
+                 << ", new capacity = " << saveDataQueue.maxBytes()/(1024*1024)
+                 << " MiB\n";
+    }
+
 
     if(printVersion) {
         std::cout << "Version " << PROJECT_VERSION << std::endl;

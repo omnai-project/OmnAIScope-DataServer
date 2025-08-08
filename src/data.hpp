@@ -24,7 +24,6 @@
 #include <cstddef>
 #include <malloc.h>
 
-
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class Writer;
@@ -157,7 +156,7 @@ inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureDa
 std::atomic<bool> running{true};
 bool verbose{false};
 std::queue<sample_T> sampleQueue;
-SaveDeque<sample_T> saveDataQueue(10ULL * 1024 * 1024); 
+SaveDeque<sample_T> saveDataQueue(10ULL * 1024 * 1024);
 std::mutex sampleQueueMutex;
 std::mutex wsDataQueueMutex;
 nlohmann::json HeaderJSON;
@@ -255,6 +254,8 @@ private:
         const auto &[firstId, firstDeviceData] = *captureData.begin();
         size_t vectorSize = firstDeviceData.size();
 
+	int Countdown = sampleQuotient;
+
         // Save all data in the saveQueue
         for(int i = 0; i < vectorSize-1; ++i){
             if(!running) return; 
@@ -278,44 +279,15 @@ private:
             // thread save access to handle and counter
             saveHandle.push(sample);
             dataPointsInSaveQue++; 
+
+	    if (--Countdown == 0) {
+            	std::lock_guard<std::mutex> lock(sampleQueueMutex);
+            	handle.push(sample);
+            	dataPointsInSampleQue++;
+            	Countdown = sampleQuotient;
+            }
         }
 
-        for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition)
-        {
-            if ((currentPosition + sampleQuotient) < vectorSize)
-            {
-                currentPosition = currentPosition + sampleQuotient - 1;
-            }
-            else
-                return;
-
-            if (!running)
-            {
-                return;
-            }
-
-            // values from first device
-            timeStamp = std::trunc(firstDeviceData[currentPosition].first);
-            firstX = round_to(firstDeviceData[currentPosition].second, 5);
-
-            // values from other devices
-            otherX = std::vector<val_T>();
-            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it)
-            {
-                const auto &deviceData = it->second;
-                if (currentPosition < deviceData.size())
-                {
-                    otherX->push_back(round_to(deviceData[currentPosition].second, 5));
-                }
-            }
-
-            sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
-
-            // thread save access to handle and counter
-            std::lock_guard<std::mutex> lock(sampleQueueMutex);
-            handle.push(sample);
-            dataPointsInSampleQue++;
-        }
     }
 
 public:
@@ -1289,7 +1261,7 @@ public:
 };
 
 enum class CmdType {
-    START, STOP, SAVE, BUFFER, UNKNOWN
+    START, STOP, SAVE, UNKNOWN
 };
 
 /**
@@ -1367,16 +1339,6 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
                 cmd.saveMetaData.filepath = path; 
             }   
         }
-	else if(type == "buffer") {
-		cmd.type = CmdType::BUFFER;
-                if (rawDataJson.contains("clear") && rawDataJson["clear"].get<std::string>() == "all") {
-        		cmd.clearBuffer = true;
-    		}
-    		else if (rawDataJson.contains("size")) {
-        		int mb = rawDataJson["size"].get<int>();
-        		cmd.bufferSizeMB = mb;
-    		}		
-	}
     }
     catch (...) {
         cmd.type = CmdType::UNKNOWN;
@@ -1537,38 +1499,6 @@ void workOnCommands(std::stop_token stop_token, ControlWriter &controlWriter ){
                 cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
                 break; 
             }
-	    case CmdType::BUFFER: {
-    	    	if (wsCtx.currentMeasurement) {
-            		cmd.conn->send_text(R"({"type":"error","msg":"Cannot change buffer during measurement"})");
-        		break;
-    	    	}
-    		// Clear Data
-    		if (cmd.clearBuffer) {
-        		saveDataQueue.clear();
-        		saveDataQueue.resizeMaxBytes(10ULL * 1024 * 1024);  // Default 10 MiB
-        		cmd.conn->send_text(R"({"type":"buffer","status":"cleared","sizeMB":10})");
-        		break;
-    		}
-    		// Set new Size
-    		{
-        		int mb = cmd.bufferSizeMB;
-        		if (mb < 11 || mb > 1000) {
-            			cmd.conn->send_text(R"({"type":"error","msg":"Buffer size must be 11–1000 MB"})");
-        		}
-        		else {
-            			size_t newBytes = static_cast<size_t>(mb) * 1024 * 1024;
-            			if (!saveDataQueue.resizeMaxBytes(newBytes)) {
-                			cmd.conn->send_text(R"({"type":"error","msg":"Cannot shrink buffer below current size"})");
-            			}
-            			else {
-                			cmd.conn->send_text(
-                  				nlohmann::json{{"type","buffer"},{"status","resized"},{"sizeMB",mb}}.dump()
-                			);
-            			}
-        		}
-    		}
-    		break;
-	   }
 
         }
      }
