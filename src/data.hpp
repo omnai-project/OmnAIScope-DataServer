@@ -179,7 +179,11 @@ struct WSContext {
     std::jthread msmntThread;  
     std::jthread sendThread; 
 }; 
-WSContext wsCtx;
+WSContext wsCtx; 
+// Used to create a short pause in Writer to wait for new data
+// Limit was set after several tests and can still be adjusted
+constexpr std::chrono::nanoseconds  SLEEP{1};
+constexpr int IDLE_LIMIT = 20000;
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -397,10 +401,19 @@ private:
 
     void write_csv(std::atomic<int> &dataPointsInSampleQue)
     {  
+	int idleCount = 0;
+
 	outFile << std::fixed << std::setprecision(5);
 	std::cout << "Start Write in CSV" << std::endl;
-        while (running && !saveHandle.empty())
+        while (running)
         {   
+	    // Wait for new data for a specific period of time
+	    if (saveHandle.empty()) {
+                if (++idleCount >= IDLE_LIMIT) break;
+		std::this_thread::sleep_for(SLEEP);
+		continue;
+            }	
+
             if (!saveHandle.empty())
             {
                 sample_T sample;
@@ -422,6 +435,8 @@ private:
                     }
                 }
                 outFile << "\n";
+
+		idleCount = 0;
             }
         }
 	std::cout << "Write in CSV complete" << std::endl;
@@ -429,12 +444,21 @@ private:
 
     void write_json(std::atomic<int> &dataPointsInSampleQue)
     {
+	int idleCount = 0;
+
 	outFile << std::fixed << std::setprecision(1);
 	std::cout << "Start Write in JSON" << std::endl; 
         outFile << "\"data\": " << "[";
-        while (running && !saveHandle.empty())
-        {  
-            if (running && !saveHandle.empty())
+        while (running)
+        { 
+	    // Wait for new data for a specific period of time
+ 	    if (saveHandle.empty()) {
+                if (++idleCount >= IDLE_LIMIT) break;
+		std::this_thread::sleep_for(SLEEP);
+		continue;
+            }	
+
+            if (!saveHandle.empty())
             {
                 int i = 0;
                 sample_T sample;
@@ -464,6 +488,7 @@ private:
                 outFile << "]" << "}" << ",";
                 dataPointsInSampleQue--;
                 i = 0;
+		idleCount = 0;
             }
         }
 	std::cout << "Write in JSON complete" << std::endl;
