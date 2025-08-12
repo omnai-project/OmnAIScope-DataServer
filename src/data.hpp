@@ -1401,7 +1401,7 @@ void saveMeasurement(Command &cmd, ControlWriter& ctrl, WSContext& wsCtx){
 
     ctrl.saveData(wsCtx); 
 
-    while(dataPointsInSampleQue > 0){
+    while(!saveDataQueue.empty()){
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
