@@ -22,7 +22,6 @@
 #include <optional>
 #include <deque>
 #include <cstddef>
-#include <malloc.h>
 
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -99,16 +98,6 @@ class SaveDeque {
     		size_t bytesUsed() const {
         		std::lock_guard<std::mutex> lock(mutex_);
         		return currentBytes_;
-    		}
-
-    		// Clear all contents 
-    		void clear() {
-        		std::lock_guard<std::mutex> lock(mutex_);
-			std::deque<T>().swap(buffer_);
-        		buffer_.clear();
-        		currentBytes_ = 0;
-			maxBytes_ = 10ULL * 1024 * 1024;
-			malloc_trim(0);
     		}
 
     		// Check if buffer empty 
