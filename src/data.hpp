@@ -172,7 +172,7 @@ WSContext wsCtx;
 // Used to create a short pause in Writer to wait for new data
 // Limit was set after several tests and can still be adjusted
 constexpr std::chrono::nanoseconds  SLEEP{1};
-constexpr int IDLE_LIMIT = 20000;
+constexpr int IDLE_LIMIT = 100000;
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -393,7 +393,9 @@ private:
 	int idleCount = 0;
 
 	outFile << std::fixed << std::setprecision(5);
-	std::cout << "Start Write in CSV" << std::endl;
+	if (verbose) {
+		std::cout << "Start Write in CSV" << std::endl;
+	}
         while (running)
         {   
 	    // Wait for new data for a specific period of time
@@ -428,7 +430,9 @@ private:
 		idleCount = 0;
             }
         }
-	std::cout << "Write in CSV complete" << std::endl;
+	if (verbose) {
+		std::cout << "Write in CSV complete" << std::endl;
+	}
     }
 
     void write_json(std::atomic<int> &dataPointsInSampleQue)
@@ -436,7 +440,9 @@ private:
 	int idleCount = 0;
 
 	outFile << std::fixed << std::setprecision(1);
-	std::cout << "Start Write in JSON" << std::endl; 
+	if (verbose) {
+		std::cout << "Start Write in JSON" << std::endl;
+	}	
         outFile << "\"data\": " << "[";
         while (running)
         { 
@@ -480,13 +486,17 @@ private:
 		idleCount = 0;
             }
         }
-	std::cout << "Write in JSON complete" << std::endl;
+	if (verbose) {
+		std::cout << "Write in JSON complete" << std::endl;
+	}
         outFile << "]";
     }
 
     void write_console(std::atomic<int> &dataPointsInSampleQue)
     {
-	std::cout << "Start Write in Console" << std::endl;
+	if (verbose) {
+		std::cout << "Start Write in Console" << std::endl;
+	}
         while (running)
         {
             if (dataPointsInSampleQue > 0)
@@ -515,11 +525,13 @@ private:
                     }
                 }
 
-		std::cout << "Write in Console complete" << std::endl;
                 std::cout << "]" << std::flush;
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
+	if (verbose) {
+        	std::cout << "Write in Console complete" << std::endl;
+	}
     }
 
     void write_JsonObject(std::atomic<int> &dataPointsInSampleQue, std::mutex &jsonMutex)
