@@ -1,4 +1,6 @@
 // #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
+#pragma once
+
 #include <boost/asio.hpp>
 #include <iostream>
 #include <chrono>
@@ -18,6 +20,8 @@
 #include "crow/middlewares/cors.h"
 #include "sample.pb.h"
 #include <optional>
+#include <deque>
+#include <cstddef>
 
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -26,6 +30,107 @@ class Measurement;
 class ControlWriter; 
 enum class DataDestination;
 enum class FormatType;
+
+// BUFFER////////////////////////////////////////////////////////////////////////////////////////////////
+// Used to store samples. Data is retained up to a specified size. Old data is then discarded to make room for new data. The data is written to a file as required.
+template <typename T>
+class SaveDeque {
+	public:
+    		using SizeFunc = std::function<size_t(const T&)>;
+		
+		// 10MiB Default
+    		explicit SaveDeque(
+        		size_t maxBytes = 10ULL * 1024 * 1024,
+        		SizeFunc sizeFunc = [](const T& item){ return sizeof(T); }
+    		) : maxBytes_(maxBytes), currentBytes_(0), sizeFunc_(std::move(sizeFunc)) {}
+		
+		// Push a new element - remove oldest element until enough space
+    		void push(const T& item) {
+        		size_t newBytes = sizeFunc_(item);
+        		std::lock_guard<std::mutex> lock(mutex_);
+        
+			while (!buffer_.empty() && currentBytes_ + newBytes > maxBytes_) {
+            			const T& old = buffer_.front();
+            			currentBytes_ -= sizeFunc_(old);
+            			buffer_.pop_front();
+        		}
+        		buffer_.push_back(item);
+        		currentBytes_ += newBytes;
+    		}
+		
+	    	// Remove oldest element
+    		void pop() {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		if (!buffer_.empty()) {
+            			currentBytes_ -= sizeFunc_(buffer_.front());
+            			buffer_.pop_front();
+        		}
+    		}
+
+    		// Peek oldest element (0 = oldest)
+    		T oldest() const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return buffer_.front();
+    		}
+
+    		// Peek newest element (size()-1 = newest)
+    		T newest() const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return buffer_.back();
+    		}
+
+    		// Access element by index. 0 = oldest 
+    		T at(size_t idx) const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return buffer_.at(idx);
+    		}
+
+    		// Current number of elements 
+    		size_t size() const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return buffer_.size();
+    		}
+
+    		// Maximum byte capacity
+    		size_t maxBytes() const { return maxBytes_; }
+
+    		// Current bytes used 
+    		size_t bytesUsed() const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return currentBytes_;
+    		}
+
+    		// Check if buffer empty 
+    		bool empty() const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return buffer_.empty();
+    		}
+
+    		// Check if buffer full (bytesUsed >= maxBytes) 
+    		bool full() const {
+        		std::lock_guard<std::mutex> lock(mutex_);
+        		return currentBytes_ >= maxBytes_;
+    		}
+
+		bool resizeMaxBytes(size_t newMaxBytes) {
+        		std::lock_guard<std::mutex> lk(mutex_);
+        		if (newMaxBytes < maxBytes_) return false; 
+        		maxBytes_ = newMaxBytes;
+        		while (currentBytes_ > maxBytes_ && !buffer_.empty()) {
+            			currentBytes_ -= sizeFunc_(buffer_.front());
+            			buffer_.pop_front();
+        		}
+        		return true;
+    		}
+
+	private:
+    		mutable std::mutex      mutex_;
+    		std::deque<T>           buffer_;
+    		size_t            maxBytes_;
+    		size_t                  currentBytes_;
+    		SizeFunc                sizeFunc_;
+};
+
 
 // GLOBAL VARIABLES//////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -41,7 +146,7 @@ inline std::map<Omniscope::Id, std::vector<std::pair<double, double>>> captureDa
 std::atomic<bool> running{true};
 bool verbose{false};
 std::queue<sample_T> sampleQueue;
-std::queue<sample_T> saveDataQueue; 
+SaveDeque<sample_T> saveDataQueue(10ULL * 1024 * 1024);
 std::mutex sampleQueueMutex;
 std::mutex wsDataQueueMutex;
 nlohmann::json HeaderJSON;
@@ -63,7 +168,11 @@ struct WSContext {
     std::jthread msmntThread;  
     std::jthread sendThread; 
 }; 
-WSContext wsCtx;
+WSContext wsCtx; 
+// Used to create a short pause in Writer to wait for new data
+// Limit was set after several tests and can still be adjusted
+constexpr std::chrono::nanoseconds  SLEEP{1};
+constexpr int IDLE_LIMIT = 1000000;
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -113,7 +222,7 @@ private:
      * CaptureData contains a different amount of data points each time, samples at the edge are sometimes ignored at specific sampling rates
      * Values are rounded to 5th decimal place
      */
-    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::queue<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue)
+    void transformData(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, SaveDeque<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue)
     {
         // TODO: sampling should be improved
         int currentPosition = 0;
@@ -139,6 +248,8 @@ private:
         const auto &[firstId, firstDeviceData] = *captureData.begin();
         size_t vectorSize = firstDeviceData.size();
 
+	int Countdown = sampleQuotient;
+
         // Save all data in the saveQueue
         for(int i = 0; i < vectorSize-1; ++i){
             if(!running) return; 
@@ -162,48 +273,19 @@ private:
             // thread save access to handle and counter
             saveHandle.push(sample);
             dataPointsInSaveQue++; 
+
+	    if (--Countdown == 0) {
+            	std::lock_guard<std::mutex> lock(sampleQueueMutex);
+            	handle.push(sample);
+            	dataPointsInSampleQue++;
+            	Countdown = sampleQuotient;
+            }
         }
 
-        for (currentPosition = 0; currentPosition < vectorSize; ++currentPosition)
-        {
-            if ((currentPosition + sampleQuotient) < vectorSize)
-            {
-                currentPosition = currentPosition + sampleQuotient - 1;
-            }
-            else
-                return;
-
-            if (!running)
-            {
-                return;
-            }
-
-            // values from first device
-            timeStamp = std::trunc(firstDeviceData[currentPosition].first);
-            firstX = round_to(firstDeviceData[currentPosition].second, 5);
-
-            // values from other devices
-            otherX = std::vector<val_T>();
-            for (auto it = std::next(captureData.begin()); it != captureData.end(); ++it)
-            {
-                const auto &deviceData = it->second;
-                if (currentPosition < deviceData.size())
-                {
-                    otherX->push_back(round_to(deviceData[currentPosition].second, 5));
-                }
-            }
-
-            sample_T sample = std::make_tuple(timeStamp, firstX, otherX);
-
-            // thread save access to handle and counter
-            std::lock_guard<std::mutex> lock(sampleQueueMutex);
-            handle.push(sample);
-            dataPointsInSampleQue++;
-        }
     }
 
 public:
-    QueueFormatter(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, std::queue<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue, int &samplingRate)
+    QueueFormatter(std::map<Omniscope::Id, std::vector<std::pair<double, double>>> &captureData, std::queue<sample_T> &handle, SaveDeque<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue, int &samplingRate)
         : handle(handle), samplingRate(samplingRate)
     {
         transformData(captureData, handle, saveHandle, dataPointsInSampleQue);
@@ -275,6 +357,7 @@ class Writer
 private:
     std::ofstream outFile;
     std::queue<sample_T> &handle;
+    SaveDeque<sample_T> &saveHandle;
     std::queue<nlohmann::json> &jsonHandle;
     std::queue<std::string> &csvHandle;
     std::queue<std::string> &binaryHandle;
@@ -307,14 +390,27 @@ private:
 
     void write_csv(std::atomic<int> &dataPointsInSampleQue)
     {  
-        while (running && !saveDataQueue.empty())
+	int idleCount = 0;
+
+	outFile << std::fixed << std::setprecision(5);
+	if (verbose) {
+		std::cout << "Start Write in CSV" << std::endl;
+	}
+        while (running)
         {   
-            if (dataPointsInSampleQue > 0)
+	    // Wait for new data for a specific period of time
+	    if (saveHandle.empty()) {
+                if (++idleCount >= IDLE_LIMIT) break;
+		std::this_thread::sleep_for(SLEEP);
+		continue;
+            }	
+
+            if (!saveHandle.empty())
             {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
-                sample = handle.front();
-                handle.pop();
+		sample = saveHandle.oldest();
+		saveHandle.pop();
 
                 outFile << std::get<0>(sample) << " , " << std::get<1>(sample) << " ";
                 const auto &optionalValues = std::get<2>(sample);
@@ -330,24 +426,40 @@ private:
                     }
                 }
                 outFile << "\n";
-                dataPointsInSampleQue--;
+
+		idleCount = 0;
             }
         }
+	if (verbose) {
+		std::cout << "Write in CSV complete" << std::endl;
+	}
     }
 
     void write_json(std::atomic<int> &dataPointsInSampleQue)
     {
+	int idleCount = 0;
 
+	outFile << std::fixed << std::setprecision(1);
+	if (verbose) {
+		std::cout << "Start Write in JSON" << std::endl;
+	}	
         outFile << "\"data\": " << "[";
-        while (running && !saveDataQueue.empty())
-        {  
-            if (dataPointsInSampleQue > 0)
+        while (running)
+        { 
+	    // Wait for new data for a specific period of time
+ 	    if (saveHandle.empty()) {
+                if (++idleCount >= IDLE_LIMIT) break;
+		std::this_thread::sleep_for(SLEEP);
+		continue;
+            }	
+
+            if (!saveHandle.empty())
             {
                 int i = 0;
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
-                sample = handle.front();
-                handle.pop();
+		sample = saveHandle.oldest();
+		saveHandle.pop();
 
                 outFile << "{\"timestamp\" : " << std::get<0>(sample) << "," << "\"value\": [" << std::get<1>(sample);
                 if (i < measurement->uuids.size() - 1)
@@ -371,21 +483,28 @@ private:
                 outFile << "]" << "}" << ",";
                 dataPointsInSampleQue--;
                 i = 0;
+		idleCount = 0;
             }
         }
+	if (verbose) {
+		std::cout << "Write in JSON complete" << std::endl;
+	}
         outFile << "]";
     }
 
     void write_console(std::atomic<int> &dataPointsInSampleQue)
     {
+	if (verbose) {
+		std::cout << "Start Write in Console" << std::endl;
+	}
         while (running)
         {
             if (dataPointsInSampleQue > 0)
             {
                 sample_T sample;
                 std::lock_guard<std::mutex> lock(sampleQueueMutex);
-                sample = handle.front();
-                handle.pop();
+		sample = saveHandle.oldest();
+		saveHandle.pop();
 
                 std::cout << "\r[";
 
@@ -408,9 +527,11 @@ private:
 
                 std::cout << "]" << std::flush;
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                dataPointsInSampleQue--;
             }
         }
+	if (verbose) {
+        	std::cout << "Write in Console complete" << std::endl;
+	}
     }
 
     void write_JsonObject(std::atomic<int> &dataPointsInSampleQue, std::mutex &jsonMutex)
@@ -423,7 +544,7 @@ private:
 
         while (websocketConnectionActive)
         {
-            if (dataPointsInSampleQue > 0)
+	    if (dataPointsInSampleQue > 0)
             {
                 sample_T sample;
 
@@ -610,8 +731,8 @@ private:
     }
 
 public:
-    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T> &handle, std::atomic<int> &dataPointsInSampleQue, std::queue<nlohmann::json> &jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
-        : handle(handle), measurement(measurement), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle)
+    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T> &handle, SaveDeque<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue, std::queue<nlohmann::json> &jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
+        : handle(handle), measurement(measurement), saveHandle(saveHandle), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle)
     {
         std::cout << std::fixed << std::setprecision(3); 
         // Seperation by data destination
@@ -789,20 +910,16 @@ class ControlWriter {
             QueueFormatter *queueFormatter = new QueueFormatter(captureData, sampleQueue, saveDataQueue, dataPointsInSampleQue, measurement->samplingRate);
             delete queueFormatter;
 
-            if (startWriter)
+            if (!writer_)
             {
-                writer_= new Writer(measurement, sampleQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
-                startWriter = false;
+                writer_= new Writer(measurement, sampleQueue, saveDataQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
             }
         }
     }
 
     void ControlWriter::saveData(WSContext& wsCtx){
-        if (startWriter)
-        {
-            writer_= new Writer(wsCtx.currentMeasurement, saveDataQueue, dataPointsInSaveQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
-            startWriter = false;
-        }
+       	    delete writer_;
+            writer_= new Writer(wsCtx.currentMeasurement, sampleQueue, saveDataQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
     }
     void ControlWriter::stopWriter() {
     // this could lead to race condition but in rare cases 
@@ -1187,9 +1304,11 @@ struct StartMeta {
 * @brief Commandobject containing commandType, metadataobject, websocket connection ptr
 */
 struct Command {
-    CmdType type; 
+    CmdType type = CmdType::UNKNOWN;
     StartMeta startMetaData; 
-    StartMeta saveMetaData; 
+    StartMeta saveMetaData;
+    int bufferSizeMB = 0;
+    bool clearBuffer = false; 
     crow::websocket::connection* conn = nullptr; 
 };
 
@@ -1202,7 +1321,8 @@ Command parseCommand(const std::string&, crow::websocket::connection&);
 * @param conn websocket connection handle for Commandobject 
 */
 Command parseCommand(const std::string& rawData, crow::websocket::connection* conn){
-    Command cmd{CmdType::UNKNOWN, {}, {}, conn}; 
+    Command cmd;
+    cmd.conn = conn; 
 
     try{
         auto rawDataJson = nlohmann::json::parse(rawData); 
@@ -1400,10 +1520,13 @@ void workOnCommands(std::stop_token stop_token, ControlWriter &controlWriter ){
                     cmd.conn->send_text(R"({"type":"error","msg":"Stop measurement before saving"})");
                     break;
                 }
-                else saveMeasurement(cmd, controlWriter, wsCtx); 
+                else saveMeasurement(cmd, controlWriter, wsCtx);
+	       	wsCtx.currentMeasurement.reset();
+		controlWriter.stopWriter();
                 cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
                 break; 
             }
+
         }
      }
 }
@@ -1507,7 +1630,7 @@ void StartWS(int &port, ControlWriter &controlWriter)
     {
         websocketConnectionActive = false;
         if (cmdWorker.joinable()) {
-            cmdQueue.push(Command{CmdType::UNKNOWN,{},{},{nullptr}});
+            cmdQueue.push(Command{CmdType::UNKNOWN,{},{},0,false,{nullptr}});
             cmdWorker.request_stop();
         }
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
