@@ -172,7 +172,7 @@ WSContext wsCtx;
 // Used to create a short pause in Writer to wait for new data
 // Limit was set after several tests and can still be adjusted
 constexpr std::chrono::nanoseconds  SLEEP{1};
-constexpr int IDLE_LIMIT = 100000;
+constexpr int IDLE_LIMIT = 1000000;
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
