@@ -1463,8 +1463,7 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
             }
             if(rawDataJson.contains("format")){
                 std::string fmt = rawDataJson["format"].get<std::string>();
-                if(fmt=="csv") cmd.saveMetaData.format = FormatType::CSV;
-	       	else if (fmt=="json")  cmd.saveMetaData.format = FormatType::JSON;	
+	       	if (fmt=="json")  cmd.saveMetaData.format = FormatType::JSON;	
                 else if (fmt=="binary") cmd.saveMetaData.format = FormatType::BINARY; 
                 else cmd.saveMetaData.format = FormatType::CSV;  
             }
