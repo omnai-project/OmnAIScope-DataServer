@@ -177,6 +177,7 @@ WSContext wsCtx;
 // Limit was set after several tests and can still be adjusted
 constexpr std::chrono::nanoseconds  SLEEP{1};
 constexpr int IDLE_LIMIT = 1000000;
+inline std::atomic<bool> RECORDING{false};
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1479,8 +1480,7 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
         		cmd.recordMeta.set = rawDataJson["set"].get<std::string>();
     		if (rawDataJson.contains("format")) {
         		std::string fmt = rawDataJson["format"].get<std::string>();
-        		if (fmt == "csv")   cmd.recordMeta.format = FormatType::CSV;
-        		else if (fmt=="json") cmd.recordMeta.format = FormatType::JSON;
+        		if (fmt=="json") cmd.recordMeta.format = FormatType::JSON;
         		else cmd.recordMeta.format = FormatType::CSV;
     		} else {
         		cmd.recordMeta.format = FormatType::CSV;
