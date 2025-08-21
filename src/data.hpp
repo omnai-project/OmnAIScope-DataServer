@@ -1024,7 +1024,7 @@ class ControlWriter {
         	if (ec) {
            		std::cerr << "[record] rename failed: " << ec.message() << "\n";
         	}
-    	}).detach();
+    	}).detach(); // Important to descruct the Recordwriter without Threadblock
     }
 
 // Closing the Programm and WS Connections savely:
@@ -1387,7 +1387,7 @@ public:
 enum class CmdType {
     START, STOP, SAVE, RECORD, UNKNOWN
 };
-
+// Object for Recordmetadata
 struct RecordMeta {
     std::string set;
     FormatType  format = FormatType::CSV;
@@ -1545,9 +1545,9 @@ void saveMeasurement(Command &cmd, ControlWriter& ctrl, WSContext& wsCtx){
     wsCtx.currentMeasurement->samplingRate = cmd.saveMetaData.samplingRate; 
     wsCtx.currentMeasurement->uuids = cmd.saveMetaData.uuids; 
     wsCtx.currentMeasurement->filePath = cmd.saveMetaData.filepath; 
-
     ctrl.saveData(wsCtx);
 
+    
     auto m = std::make_shared<Measurement>();
     m->dataDestination = DataDestination::LOCALFILE;
     m->format          = cmd.saveMetaData.format;      
