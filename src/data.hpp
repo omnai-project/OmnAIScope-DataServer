@@ -897,7 +897,7 @@ class ControlWriter {
 	void startOneShotSave(std::shared_ptr<Measurement> m);
 
 	void startRecording(const std::shared_ptr<Measurement>& m);
-    	void stopRecording();
+    	void stopRecording(crow::websocket::connection* conn);
 
     private: 
         Writer* writer_{nullptr};
@@ -975,18 +975,7 @@ class ControlWriter {
        	    delete writer_;
             writer_= new Writer(wsCtx.currentMeasurement, sampleQueue, saveDataQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
     }
-
-    void ControlWriter::startOneShotSave(std::shared_ptr<Measurement> m) {
-    	std::thread([m]{
-        	Writer saver(m,
-                     sampleQueue,          
-                     saveDataQueue,   
-                     dataPointsInSaveQue, 
-                     wsPackagesQueue, wsDataQueueMutex,
-                     wsCSVPackagesQueue, wsBinaryPackagesQueue, false);
-    	}).detach();
-    }
-
+    
     void ControlWriter::stopWriter() {
         if(!websocketConnectionActive){
             if (writer_) {
@@ -1008,7 +997,7 @@ class ControlWriter {
     	recorder_ = new Writer(m, sampleQueue, saveDataQueue, dataPointsInSaveQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue, true);
     }
 
-    void ControlWriter::stopRecording() {
+    void ControlWriter::stopRecording(crow::websocket::connection* conn) {
     	RECORDING.store(false);
 
     	if (!recorder_) return;
@@ -1018,12 +1007,19 @@ class ControlWriter {
     	auto final = recordFinalPath_;
     	recorder_ = nullptr;
 
-    	std::thread([w, tmp, final]() {
+    	std::thread([w, tmp, final, conn]() {
         	delete w;
         	std::error_code ec;
         	fs::rename(tmp, final, ec);
         	if (ec) {
            		std::cerr << "[record] rename failed: " << ec.message() << "\n";
+        	}
+		if (!ec && conn) {
+            		nlohmann::json msg = {
+                		{"type","file-ready"},
+                		{"url", "/download/" + final}
+            		};
+            		conn->send_text(msg.dump());
         	}
     	}).detach(); // Important to descruct the Recordwriter without Threadblock
     }
@@ -1546,15 +1542,6 @@ void saveMeasurement(Command &cmd, ControlWriter& ctrl, WSContext& wsCtx){
     wsCtx.currentMeasurement->filePath = cmd.saveMetaData.filepath; 
     ctrl.saveData(wsCtx);
 
-    
-    auto m = std::make_shared<Measurement>();
-    m->dataDestination = DataDestination::LOCALFILE;
-    m->format          = cmd.saveMetaData.format;      
-    m->samplingRate    = cmd.saveMetaData.samplingRate; 
-    m->uuids           = cmd.saveMetaData.uuids;       
-    m->filePath        = cmd.saveMetaData.filepath;
-    ctrl.startOneShotSave(m); 
-
     while(!saveDataQueue.empty()){
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -1672,7 +1659,7 @@ void workOnCommands(std::stop_token stop_token, ControlWriter &controlWriter ){
             			cmd.conn->send_text(R"({"type":"record","status":"not-running"})");
             			break;
         		}
-        		controlWriter.stopRecording();
+        		controlWriter.stopRecording(cmd.conn);
         		cmd.conn->send_text(R"({"type":"record","status":"stopping"})");
     		}
     		break;
@@ -1745,10 +1732,11 @@ void StartWS(int &port, ControlWriter &controlWriter)
         return crow::response(204);
     });
 
-    CROW_ROUTE(crowApp, "/download/<string>")
-    ([](const std::string& fname) {                    
+    CROW_ROUTE(crowApp, "/download/<path>")
+    ([](const std::string& fname) {
+ 	if (fname.find("..") != std::string::npos) return crow::response(400);
         std::ifstream f(fname, std::ios::binary);
-        if (fname.find_first_of("\\/") != std::string::npos) return crow::response(400);
+        //if (fname.find_first_of("\\/") != std::string::npos) return crow::response(400);
         if (!f) return crow::response(404);
 
         std::string body{ std::istreambuf_iterator<char>(f),
@@ -1757,8 +1745,9 @@ void StartWS(int &port, ControlWriter &controlWriter)
         crow::response res;
         res.code = 200;
         res.set_header("Content-Type", "text/plain");
+	std::string base = std::filesystem::path(fname).filename().string();
         res.set_header("Content-Disposition",
-                    "attachment; filename=\"" + fname + "\"");
+                    "attachment; filename=\"" + base + "\"");
         res.body = std::move(body);
         return res;                                   
     });
