@@ -894,7 +894,6 @@ class ControlWriter {
         void printOrWriteData(std::shared_ptr<Measurement> measurement, std::optional<std::stop_token> stopToken = std::nullopt);
         void stopWriter();   
         void saveData(WSContext& wsCtx);
-	void startOneShotSave(std::shared_ptr<Measurement> m);
 
 	void startRecording(const std::shared_ptr<Measurement>& m);
     	void stopRecording(crow::websocket::connection* conn);
@@ -1736,7 +1735,6 @@ void StartWS(int &port, ControlWriter &controlWriter)
     ([](const std::string& fname) {
  	if (fname.find("..") != std::string::npos) return crow::response(400);
         std::ifstream f(fname, std::ios::binary);
-        //if (fname.find_first_of("\\/") != std::string::npos) return crow::response(400);
         if (!f) return crow::response(404);
 
         std::string body{ std::istreambuf_iterator<char>(f),
