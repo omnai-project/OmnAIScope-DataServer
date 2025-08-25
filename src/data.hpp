@@ -22,6 +22,10 @@
 #include <optional>
 #include <deque>
 #include <cstddef>
+#include <filesystem>
+#include <ctime>
+
+namespace fs = std::filesystem;
 
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -173,6 +177,7 @@ WSContext wsCtx;
 // Limit was set after several tests and can still be adjusted
 constexpr std::chrono::nanoseconds  SLEEP{1};
 constexpr int IDLE_LIMIT = 1000000;
+inline std::atomic<bool> RECORDING{false};
 
 // FUNCTION HEADER/////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -198,6 +203,47 @@ void clearQueue(std::queue<T, Container> &q)
     std::queue<T, Container> empty;
     std::swap(q, empty);
 };
+
+// HELP FUNCTIONS//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// defines possible format types
+enum class FormatType { CSV, JSON, BINARY, UNKNOWN };
+
+// Help Functions to create the Record File
+inline std::string makeTimestampYYMMDD_HHMM() {
+    using clock = std::chrono::system_clock;
+    const auto t = clock::to_time_t(clock::now());
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%02d%02d%02d_%02d%02d",
+                  (tm.tm_year + 1900) % 100, tm.tm_mon + 1, tm.tm_mday,
+                  tm.tm_hour, tm.tm_min);
+    return std::string(buf);
+}
+
+inline std::string ensureRecordTmpPath() {
+    fs::create_directories("Record");                 // idempotent
+    return "Record/" + makeTimestampYYMMDD_HHMM() + ".tmp";
+}
+
+inline std::string finalExtFor(FormatType fmt) {
+    switch (fmt) {
+        case FormatType::CSV:  return ".csv";
+        case FormatType::JSON: return ".json";
+        default:               return ".dat";
+    }
+}
+
+inline std::string asFinalFromTmp(const std::string& tmpPath, FormatType fmt) {
+    auto pos = tmpPath.rfind(".tmp");
+    std::string base = (pos == std::string::npos) ? tmpPath : tmpPath.substr(0, pos);
+    return base + finalExtFor(fmt);
+}
 
 // CLASSES/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /**
@@ -306,16 +352,6 @@ enum class DataDestination
     WS
 };
 
-/**
- * defines possible format types
- */
-enum class FormatType
-{
-    CSV,
-    JSON,
-    BINARY,
-    UNKNOWN
-};
 
 /**
  * @brief create a Measurement on construction
@@ -354,6 +390,7 @@ public:
  */
 class Writer
 {   // write data into various formats, including a json object for the Websocket
+    bool recordingMode_{false};
 private:
     std::ofstream outFile;
     std::queue<sample_T> &handle;
@@ -363,6 +400,7 @@ private:
     std::queue<std::string> &binaryHandle;
     std::thread writerThread;
     std::shared_ptr<Measurement> measurement;
+    std::atomic<bool> finished_{false};
 
     nlohmann::json createJsonObject(const std::vector<std::string> &UUIDs)
     {
@@ -398,6 +436,8 @@ private:
 	}
         while (running)
         {   
+	    if (recordingMode_ && !RECORDING.load()) break;
+
 	    // Wait for new data for a specific period of time
 	    if (saveHandle.empty()) {
                 if (++idleCount >= IDLE_LIMIT) break;
@@ -433,6 +473,7 @@ private:
 	if (verbose) {
 		std::cout << "Write in CSV complete" << std::endl;
 	}
+	finished_.store(true, std::memory_order_release);
     }
 
     void write_json(std::atomic<int> &dataPointsInSampleQue)
@@ -446,6 +487,8 @@ private:
         outFile << "\"data\": " << "[";
         while (running)
         { 
+            if (recordingMode_ && !RECORDING.load()) break;
+            
 	    // Wait for new data for a specific period of time
  	    if (saveHandle.empty()) {
                 if (++idleCount >= IDLE_LIMIT) break;
@@ -731,8 +774,8 @@ private:
     }
 
 public:
-    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T> &handle, SaveDeque<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue, std::queue<nlohmann::json> &jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle)
-        : handle(handle), measurement(measurement), saveHandle(saveHandle), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle)
+    Writer(std::shared_ptr<Measurement> measurement, std::queue<sample_T> &handle, SaveDeque<sample_T> &saveHandle, std::atomic<int> &dataPointsInSampleQue, std::queue<nlohmann::json> &jsonHandle, std::mutex &jsonMutex, std::queue<std::string> &csvHandle, std::queue<std::string> &binaryHandle, bool recordingMode = false)
+        : handle(handle), measurement(measurement), saveHandle(saveHandle), jsonHandle(jsonHandle), csvHandle(csvHandle), binaryHandle(binaryHandle), recordingMode_(recordingMode)
     {
         std::cout << std::fixed << std::setprecision(3); 
         // Seperation by data destination
@@ -841,6 +884,9 @@ public:
             writerThread.join();
         }
     }
+    
+    bool finished() const noexcept { return finished_.load(std::memory_order_acquire); }
+    bool isRecording() const noexcept { return recordingMode_; }
 };
 
 class ControlWriter {
@@ -849,8 +895,15 @@ class ControlWriter {
         void stopWriter();   
         void saveData(WSContext& wsCtx);
 
+	void startRecording(const std::shared_ptr<Measurement>& m);
+    	void stopRecording(crow::websocket::connection* conn);
+
     private: 
-        Writer* writer_{nullptr}; 
+        Writer* writer_{nullptr};
+	Writer* recorder_{nullptr};
+
+	std::string recordTmpPath_;
+    	std::string recordFinalPath_;
 };
 // FUNCTIONS/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -921,8 +974,8 @@ class ControlWriter {
        	    delete writer_;
             writer_= new Writer(wsCtx.currentMeasurement, sampleQueue, saveDataQueue, dataPointsInSampleQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue);
     }
+    
     void ControlWriter::stopWriter() {
-    // this could lead to race condition but in rare cases 
         if(!websocketConnectionActive){
             if (writer_) {
                 delete writer_;
@@ -930,6 +983,46 @@ class ControlWriter {
             }
         }
     }
+
+    void ControlWriter::startRecording(const std::shared_ptr<Measurement>& m) {
+    	recordTmpPath_   = ensureRecordTmpPath();
+    	recordFinalPath_ = asFinalFromTmp(recordTmpPath_, m->format);
+
+    	m->dataDestination = DataDestination::LOCALFILE;
+    	m->filePath        = recordTmpPath_;
+
+    	RECORDING.store(true, std::memory_order_release);
+
+    	recorder_ = new Writer(m, sampleQueue, saveDataQueue, dataPointsInSaveQue, wsPackagesQueue, wsDataQueueMutex, wsCSVPackagesQueue, wsBinaryPackagesQueue, true);
+    }
+
+    void ControlWriter::stopRecording(crow::websocket::connection* conn) {
+    	RECORDING.store(false);
+
+    	if (!recorder_) return;
+
+    	Writer* w = recorder_;
+    	auto tmp   = recordTmpPath_;
+    	auto final = recordFinalPath_;
+    	recorder_ = nullptr;
+
+    	std::thread([w, tmp, final, conn]() {
+        	delete w;
+        	std::error_code ec;
+        	fs::rename(tmp, final, ec);
+        	if (ec) {
+           		std::cerr << "[record] rename failed: " << ec.message() << "\n";
+        	}
+		if (!ec && conn) {
+            		nlohmann::json msg = {
+                		{"type","file-ready"},
+                		{"url", "/download/" + final}
+            		};
+            		conn->send_text(msg.dump());
+        	}
+    	}).detach(); // Important to descruct the Recordwriter without Threadblock
+    }
+
 // Closing the Programm and WS Connections savely:
 
 // TODO :  Make this cleaner, this is a mess
@@ -1288,7 +1381,14 @@ public:
 };
 
 enum class CmdType {
-    START, STOP, SAVE, UNKNOWN
+    START, STOP, SAVE, RECORD, UNKNOWN
+};
+// Object for Recordmetadata
+struct RecordMeta {
+    std::string set;
+    FormatType  format = FormatType::CSV;
+    std::string dir   = "Record";
+    std::vector<std::string> uuids;
 };
 
 /**
@@ -1307,6 +1407,7 @@ struct Command {
     CmdType type = CmdType::UNKNOWN;
     StartMeta startMetaData; 
     StartMeta saveMetaData;
+    RecordMeta recordMeta;
     int bufferSizeMB = 0;
     bool clearBuffer = false; 
     crow::websocket::connection* conn = nullptr; 
@@ -1357,15 +1458,28 @@ Command parseCommand(const std::string& rawData, crow::websocket::connection* co
             }
             if(rawDataJson.contains("format")){
                 std::string fmt = rawDataJson["format"].get<std::string>();
-                if(fmt=="csv") cmd.saveMetaData.format = FormatType::CSV; 
+	       	if (fmt=="json")  cmd.saveMetaData.format = FormatType::JSON;	
                 else if (fmt=="binary") cmd.saveMetaData.format = FormatType::BINARY; 
-                else cmd.saveMetaData.format = FormatType::JSON;  
-            }    
+                else cmd.saveMetaData.format = FormatType::CSV;  
+            }
+            else cmd.saveMetaData.format = FormatType::CSV;    
             if(rawDataJson.contains("path")){
                 std::string path = rawDataJson["path"].get<std::string>(); 
                 cmd.saveMetaData.filepath = path; 
             }   
         }
+	else if (type == "record") {
+    		cmd.type = CmdType::RECORD;
+    		if (rawDataJson.contains("set"))
+        		cmd.recordMeta.set = rawDataJson["set"].get<std::string>();
+    		if (rawDataJson.contains("format")) {
+        		std::string fmt = rawDataJson["format"].get<std::string>();
+        		if (fmt=="json") cmd.recordMeta.format = FormatType::JSON;
+        		else cmd.recordMeta.format = FormatType::CSV;
+    		} else {
+        		cmd.recordMeta.format = FormatType::CSV;
+    		}
+	}	
     }
     catch (...) {
         cmd.type = CmdType::UNKNOWN;
@@ -1418,14 +1532,14 @@ void stopMeasurement(ControlWriter& ctrl, WSContext& wsCtx){
 }
 
 void saveMeasurement(Command &cmd, ControlWriter& ctrl, WSContext& wsCtx){
+    
     wsCtx.currentMeasurement = std::make_shared<Measurement>(); 
     wsCtx.currentMeasurement->dataDestination = DataDestination::LOCALFILE; 
     wsCtx.currentMeasurement->format = cmd.saveMetaData.format; 
     wsCtx.currentMeasurement->samplingRate = cmd.saveMetaData.samplingRate; 
     wsCtx.currentMeasurement->uuids = cmd.saveMetaData.uuids; 
     wsCtx.currentMeasurement->filePath = cmd.saveMetaData.filepath; 
-
-    ctrl.saveData(wsCtx); 
+    ctrl.saveData(wsCtx);
 
     while(!saveDataQueue.empty()){
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -1526,6 +1640,30 @@ void workOnCommands(std::stop_token stop_token, ControlWriter &controlWriter ){
                 cmd.conn->send_text(nlohmann::json{ {"type","file-ready"},{"url","/download/" + cmd.saveMetaData.filepath}}.dump());
                 break; 
             }
+	    case CmdType::RECORD:{
+    		if (cmd.recordMeta.set == "start") {
+        		if (RECORDING.load()) {
+            			cmd.conn->send_text(R"({"type":"record","status":"already-running"})");
+            			break;
+        		}
+        		auto m = std::make_shared<Measurement>();
+        		m->format        = cmd.recordMeta.format;        
+        		m->uuids         = wsCtx.currentMeasurement ? wsCtx.currentMeasurement->uuids
+                                                    : cmd.recordMeta.uuids;
+        		controlWriter.startRecording(m);
+        		cmd.conn->send_text(R"({"type":"record","status":"started"})");
+    		}
+    		else if (cmd.recordMeta.set == "stop") {
+        		if (!RECORDING.load()) {
+            			cmd.conn->send_text(R"({"type":"record","status":"not-running"})");
+            			break;
+        		}
+        		controlWriter.stopRecording(cmd.conn);
+        		cmd.conn->send_text(R"({"type":"record","status":"stopping"})");
+    		}
+    		break;
+	    }
+
 
         }
      }
@@ -1593,10 +1731,10 @@ void StartWS(int &port, ControlWriter &controlWriter)
         return crow::response(204);
     });
 
-    CROW_ROUTE(crowApp, "/download/<string>")
-    ([](const std::string& fname) {                    
+    CROW_ROUTE(crowApp, "/download/<path>")
+    ([](const std::string& fname) {
+ 	if (fname.find("..") != std::string::npos) return crow::response(400);
         std::ifstream f(fname, std::ios::binary);
-        if (fname.find_first_of("\\/") != std::string::npos) return crow::response(400);
         if (!f) return crow::response(404);
 
         std::string body{ std::istreambuf_iterator<char>(f),
@@ -1605,8 +1743,9 @@ void StartWS(int &port, ControlWriter &controlWriter)
         crow::response res;
         res.code = 200;
         res.set_header("Content-Type", "text/plain");
+	std::string base = std::filesystem::path(fname).filename().string();
         res.set_header("Content-Disposition",
-                    "attachment; filename=\"" + fname + "\"");
+                    "attachment; filename=\"" + base + "\"");
         res.body = std::move(body);
         return res;                                   
     });
@@ -1630,7 +1769,9 @@ void StartWS(int &port, ControlWriter &controlWriter)
     {
         websocketConnectionActive = false;
         if (cmdWorker.joinable()) {
-            cmdQueue.push(Command{CmdType::UNKNOWN,{},{},0,false,{nullptr}});
+	    Command cmd{};
+	    cmd.conn = &conn;
+            cmdQueue.push(cmd);
             cmdWorker.request_stop();
         }
         CROW_LOG_INFO << "websocket connection closed. Your measurement was stopped. " << reason;
